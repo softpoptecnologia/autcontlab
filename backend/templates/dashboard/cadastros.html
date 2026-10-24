@@ -1,0 +1,313 @@
+{% extends "dashboard/base.html" %}
+
+{% block page_title %}Cadastros - Produtos e Clientes{% endblock %}
+
+{% block content %}
+<div class="row">
+  <!-- TAB PRODUTOS -->
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">
+          <i class="fas fa-box"></i> Produtos
+        </h3>
+        <div class="card-tools">
+          <button type="button" class="btn btn-primary btn-sm" onclick="abrirModalProduto()">
+            <i class="fas fa-plus"></i> Novo Produto
+          </button>
+        </div>
+      </div>
+      <div class="card-body table-responsive p-0">
+        <table class="table table-hover">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Nome</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="tabela-produtos">
+            <tr><td colspan="3" class="text-center">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB CLIENTES -->
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">
+          <i class="fas fa-users"></i> Clientes
+        </h3>
+        <div class="card-tools">
+          <button type="button" class="btn btn-primary btn-sm" onclick="abrirModalCliente()">
+            <i class="fas fa-plus"></i> Novo Cliente
+          </button>
+        </div>
+      </div>
+      <div class="card-body table-responsive p-0">
+        <table class="table table-hover">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Nome</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="tabela-clientes">
+            <tr><td colspan="3" class="text-center">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Produto -->
+<div class="modal fade" id="modal-produto" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title" id="modal-produto-title">Novo Produto</h4>
+        <button type="button" class="close" data-dismiss="modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="form-produto">
+          <input type="hidden" id="produto-id">
+          <div class="form-group">
+            <label>Nome do Produto</label>
+            <input type="text" class="form-control" id="produto-nome" required>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" onclick="salvarProduto()">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Cliente -->
+<div class="modal fade" id="modal-cliente" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title" id="modal-cliente-title">Novo Cliente</h4>
+        <button type="button" class="close" data-dismiss="modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="form-cliente">
+          <input type="hidden" id="cliente-id">
+          <div class="form-group">
+            <label>Nome do Cliente</label>
+            <input type="text" class="form-control" id="cliente-nome" required>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" onclick="salvarCliente()">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ========== PRODUTOS ==========
+function loadProdutos() {
+  fetch('/dashboard/api/produtos')
+    .then(res => res.json())
+    .then(data => {
+      const tbody = document.getElementById('tabela-produtos');
+      if (data.produtos && data.produtos.length > 0) {
+        tbody.innerHTML = data.produtos.map(p => `
+          <tr>
+            <td>${p.id}</td>
+            <td>${p.nome}</td>
+            <td>
+              <button class="btn btn-sm btn-warning" onclick="editarProduto(${p.id}, '${p.nome.replace(/'/g, "\\'")}')">
+                <i class="fas fa-edit"></i>
+              </button>
+              <button class="btn btn-sm btn-danger" onclick="deletarProduto(${p.id})">
+                <i class="fas fa-trash"></i>
+              </button>
+            </td>
+          </tr>
+        `).join('');
+      } else {
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center">Nenhum produto cadastrado</td></tr>';
+      }
+    })
+    .catch(err => {
+      console.error('Erro ao carregar produtos:', err);
+      document.getElementById('tabela-produtos').innerHTML = '<tr><td colspan="3" class="text-center text-danger">Erro ao carregar</td></tr>';
+    });
+}
+
+function abrirModalProduto(id = null, nome = '') {
+  document.getElementById('produto-id').value = id || '';
+  document.getElementById('produto-nome').value = nome;
+  document.getElementById('modal-produto-title').textContent = id ? 'Editar Produto' : 'Novo Produto';
+  $('#modal-produto').modal('show');
+}
+
+function salvarProduto() {
+  const id = document.getElementById('produto-id').value;
+  const nome = document.getElementById('produto-nome').value.trim();
+  
+  if (!nome) {
+    alert('Nome é obrigatório');
+    return;
+  }
+  
+  const url = id ? `/dashboard/api/produtos/${id}` : '/dashboard/api/produtos';
+  const method = id ? 'PUT' : 'POST';
+  
+  fetch(url, {
+    method: method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nome: nome })
+  })
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) {
+        alert('Erro: ' + data.error);
+      } else {
+        $('#modal-produto').modal('hide');
+        loadProdutos();
+      }
+    })
+    .catch(err => {
+      console.error('Erro ao salvar produto:', err);
+      alert('Erro ao salvar produto');
+    });
+}
+
+function editarProduto(id, nome) {
+  abrirModalProduto(id, nome);
+}
+
+function deletarProduto(id) {
+  if (!confirm('Tem certeza que deseja excluir este produto?')) return;
+  
+  fetch(`/dashboard/api/produtos/${id}`, { method: 'DELETE' })
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) {
+        alert('Erro: ' + data.error);
+      } else {
+        loadProdutos();
+      }
+    })
+    .catch(err => {
+      console.error('Erro ao deletar produto:', err);
+      alert('Erro ao deletar produto');
+    });
+}
+
+// ========== CLIENTES ==========
+function loadClientes() {
+  fetch('/dashboard/api/clientes')
+    .then(res => res.json())
+    .then(data => {
+      const tbody = document.getElementById('tabela-clientes');
+      if (data.clientes && data.clientes.length > 0) {
+        tbody.innerHTML = data.clientes.map(c => `
+          <tr>
+            <td>${c.id}</td>
+            <td>${c.nome}</td>
+            <td>
+              <button class="btn btn-sm btn-warning" onclick="editarCliente(${c.id}, '${c.nome.replace(/'/g, "\\'")}')">
+                <i class="fas fa-edit"></i>
+              </button>
+              <button class="btn btn-sm btn-danger" onclick="deletarCliente(${c.id})">
+                <i class="fas fa-trash"></i>
+              </button>
+            </td>
+          </tr>
+        `).join('');
+      } else {
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center">Nenhum cliente cadastrado</td></tr>';
+      }
+    })
+    .catch(err => {
+      console.error('Erro ao carregar clientes:', err);
+      document.getElementById('tabela-clientes').innerHTML = '<tr><td colspan="3" class="text-center text-danger">Erro ao carregar</td></tr>';
+    });
+}
+
+function abrirModalCliente(id = null, nome = '') {
+  document.getElementById('cliente-id').value = id || '';
+  document.getElementById('cliente-nome').value = nome;
+  document.getElementById('modal-cliente-title').textContent = id ? 'Editar Cliente' : 'Novo Cliente';
+  $('#modal-cliente').modal('show');
+}
+
+function salvarCliente() {
+  const id = document.getElementById('cliente-id').value;
+  const nome = document.getElementById('cliente-nome').value.trim();
+  
+  if (!nome) {
+    alert('Nome é obrigatório');
+    return;
+  }
+  
+  const url = id ? `/dashboard/api/clientes/${id}` : '/dashboard/api/clientes';
+  const method = id ? 'PUT' : 'POST';
+  
+  fetch(url, {
+    method: method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nome: nome })
+  })
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) {
+        alert('Erro: ' + data.error);
+      } else {
+        $('#modal-cliente').modal('hide');
+        loadClientes();
+      }
+    })
+    .catch(err => {
+      console.error('Erro ao salvar cliente:', err);
+      alert('Erro ao salvar cliente');
+    });
+}
+
+function editarCliente(id, nome) {
+  abrirModalCliente(id, nome);
+}
+
+function deletarCliente(id) {
+  if (!confirm('Tem certeza que deseja excluir este cliente?')) return;
+  
+  fetch(`/dashboard/api/clientes/${id}`, { method: 'DELETE' })
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) {
+        alert('Erro: ' + data.error);
+      } else {
+        loadClientes();
+      }
+    })
+    .catch(err => {
+      console.error('Erro ao deletar cliente:', err);
+      alert('Erro ao deletar cliente');
+    });
+}
+
+// Inicialização
+$(document).ready(function() {
+  loadProdutos();
+  loadClientes();
+});
+</script>
+{% endblock %}
+
+

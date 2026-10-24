@@ -1,0 +1,311 @@
+{% extends "dashboard/base.html" %}
+
+{% block page_title %}Produção &amp; Filtros{% endblock %}
+{% block page_subtitle %}<p class="text-muted mb-0">Histórico completo com lote, contagem e pesagem</p>{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-sliders-h text-teal mr-2"></i>Filtros de produção</h3>
+      </div>
+      <div class="card-body">
+        <form id="filtro-form" class="row">
+          <div class="col-md-3 col-sm-6">
+            <div class="form-group">
+              <label>Cliente</label>
+              <select class="form-control" id="filtro-cliente"><option value="">Todos</option></select>
+            </div>
+          </div>
+          <div class="col-md-3 col-sm-6">
+            <div class="form-group">
+              <label>Produto</label>
+              <select class="form-control" id="filtro-produto"><option value="">Todos</option></select>
+            </div>
+          </div>
+          <div class="col-md-2 col-sm-6">
+            <div class="form-group">
+              <label>Lote</label>
+              <input type="text" class="form-control" id="filtro-lote" list="lista-lotes" placeholder="Ex: L12">
+              <datalist id="lista-lotes"></datalist>
+            </div>
+          </div>
+          <div class="col-md-2 col-sm-6">
+            <div class="form-group">
+              <label>Status sessão</label>
+              <select class="form-control" id="filtro-status">
+                <option value="">Todos</option>
+                <option value="ativa">Ativa</option>
+                <option value="finalizada">Finalizada</option>
+              </select>
+            </div>
+          </div>
+          <div class="col-md-2 col-sm-6">
+            <div class="form-group">
+              <label>Pesagem</label>
+              <select class="form-control" id="filtro-pesagem">
+                <option value="">Todas</option>
+                <option value="pendente">Pendente</option>
+                <option value="em_andamento">Em andamento</option>
+                <option value="concluida">Concluída</option>
+              </select>
+            </div>
+          </div>
+          <div class="col-md-3 col-sm-6">
+            <div class="form-group">
+              <label>Busca livre</label>
+              <input type="text" class="form-control" id="filtro-q" placeholder="Cliente, produto, lote, ID…">
+            </div>
+          </div>
+          <div class="col-md-2 col-sm-6">
+            <div class="form-group">
+              <label>De</label>
+              <input type="date" class="form-control" id="filtro-inicio-de">
+            </div>
+          </div>
+          <div class="col-md-2 col-sm-6">
+            <div class="form-group">
+              <label>Até</label>
+              <input type="date" class="form-control" id="filtro-inicio-ate">
+            </div>
+          </div>
+        </form>
+        <div class="d-flex flex-wrap" style="gap:8px">
+          <button type="button" class="btn btn-primary" onclick="aplicarFiltros()">
+            <i class="fas fa-search"></i> Filtrar
+          </button>
+          <button type="button" class="btn btn-outline-secondary" onclick="limparFiltros()">
+            <i class="fas fa-eraser"></i> Limpar
+          </button>
+          <button type="button" class="btn btn-success" onclick="exportarExcel()">
+            <i class="fas fa-file-excel"></i> Excel
+          </button>
+          <button type="button" class="btn btn-danger" onclick="exportarPDF()">
+            <i class="fas fa-file-pdf"></i> PDF
+          </button>
+          <span class="align-self-center text-muted ml-2" id="filtro-resumo"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row mb-3">
+  <div class="col-md-3 col-6">
+    <div class="info-box mb-0">
+      <span class="info-box-icon bg-teal"><i class="fas fa-list-ol"></i></span>
+      <div class="info-box-content">
+        <span class="info-box-text">Sessões</span>
+        <span class="info-box-number mono" id="sum-sessoes">0</span>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="info-box mb-0">
+      <span class="info-box-icon bg-info"><i class="fas fa-boxes"></i></span>
+      <div class="info-box-content">
+        <span class="info-box-text">Unidades</span>
+        <span class="info-box-number mono" id="sum-unidades">0</span>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="info-box mb-0">
+      <span class="info-box-icon bg-warning"><i class="fas fa-weight-hanging"></i></span>
+      <div class="info-box-content">
+        <span class="info-box-text">Peso total</span>
+        <span class="info-box-number mono" id="sum-peso">0 kg</span>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3 col-6">
+    <div class="info-box mb-0">
+      <span class="info-box-icon bg-success"><i class="fas fa-balance-scale"></i></span>
+      <div class="info-box-content">
+        <span class="info-box-text">Peso médio</span>
+        <span class="info-box-number mono" id="sum-medio">—</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h3 class="card-title mb-0">Sessões encontradas</h3>
+        <small class="text-muted">Contagem → esteira de peso (simulado)</small>
+      </div>
+      <div class="card-body table-responsive p-0">
+        <table class="table table-hover text-nowrap" id="tabela-sessoes">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Cliente</th>
+              <th>Produto</th>
+              <th>Lote</th>
+              <th>Início</th>
+              <th>Fim</th>
+              <th>Status</th>
+              <th>Qtd</th>
+              <th>Peso total</th>
+              <th>Peso médio</th>
+              <th>Pesagem</th>
+            </tr>
+          </thead>
+          <tbody id="tabela-sessoes-body">
+            <tr><td colspan="11" class="text-center text-muted py-4">Carregando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function buildParams() {
+  const params = new URLSearchParams();
+  const map = {
+    cliente_id: 'filtro-cliente',
+    produto_id: 'filtro-produto',
+    lote: 'filtro-lote',
+    status: 'filtro-status',
+    pesagem_status: 'filtro-pesagem',
+    q: 'filtro-q',
+    inicio_de: 'filtro-inicio-de',
+    inicio_ate: 'filtro-inicio-ate',
+  };
+  Object.entries(map).forEach(([k, id]) => {
+    const v = document.getElementById(id).value;
+    if (v) params.append(k, v);
+  });
+  return params;
+}
+
+function loadOptions() {
+  fetch('/dashboard/api/clientes').then(r => r.json()).then(data => {
+    const select = document.getElementById('filtro-cliente');
+    (data.clientes || []).forEach(c => {
+      const o = document.createElement('option');
+      o.value = c.id; o.textContent = c.nome; select.appendChild(o);
+    });
+  });
+  fetch('/dashboard/api/produtos').then(r => r.json()).then(data => {
+    const select = document.getElementById('filtro-produto');
+    (data.produtos || []).forEach(p => {
+      const o = document.createElement('option');
+      o.value = p.id; o.textContent = p.nome; select.appendChild(o);
+    });
+  });
+  fetch('/dashboard/api/filtros/lotes').then(r => r.json()).then(data => {
+    const dl = document.getElementById('lista-lotes');
+    dl.innerHTML = '';
+    (data.lotes || []).forEach(l => {
+      const o = document.createElement('option');
+      o.value = l; dl.appendChild(o);
+    });
+  }).catch(() => {});
+}
+
+function pesagemBadge(st) {
+  const s = (st || 'pendente').toLowerCase();
+  if (s === 'concluida') return '<span class="badge badge-success">Concluída</span>';
+  if (s === 'em_andamento') return '<span class="badge badge-warning">Em andamento</span>';
+  return '<span class="badge badge-secondary">Pendente</span>';
+}
+
+function fmtPeso(g) {
+  if (g == null || g === '') return '—';
+  const n = Number(g);
+  if (n >= 1000) return (n / 1000).toFixed(2) + ' kg';
+  return n.toFixed(0) + ' g';
+}
+
+function aplicarFiltros() {
+  const params = buildParams();
+  document.getElementById('tabela-sessoes-body').innerHTML =
+    '<tr><td colspan="11" class="text-center py-4"><i class="fas fa-spinner fa-spin"></i> Filtrando…</td></tr>';
+
+  fetch(`/dashboard/api/filtros/sessoes?${params.toString()}`)
+    .then(res => res.json())
+    .then(data => {
+      const rows = data.sessoes || [];
+      const tbody = document.getElementById('tabela-sessoes-body');
+      let sumQtd = 0, sumPeso = 0, nPeso = 0;
+
+      if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">Nenhuma sessão encontrada</td></tr>';
+      } else {
+        tbody.innerHTML = rows.map(s => {
+          const inicio = s.inicio ? new Date(s.inicio).toLocaleString('pt-BR') : '-';
+          const fim = s.fim ? new Date(s.fim).toLocaleString('pt-BR') : '-';
+          const statusBadge = s.status === 'ativa'
+            ? '<span class="badge badge-success">Ativa</span>'
+            : '<span class="badge badge-secondary">Finalizada</span>';
+          const qtd = Number(s.total || 0);
+          sumQtd += qtd;
+          if (s.peso_total_g != null) { sumPeso += Number(s.peso_total_g); nPeso++; }
+          return `<tr>
+            <td class="mono">#${s.id}</td>
+            <td>${s.cliente || ''}</td>
+            <td>${s.produto || ''}</td>
+            <td><strong>${s.lote || '-'}</strong></td>
+            <td>${inicio}</td>
+            <td>${fim}</td>
+            <td>${statusBadge}</td>
+            <td class="mono"><strong>${qtd}</strong></td>
+            <td class="mono">${fmtPeso(s.peso_total_g)}</td>
+            <td class="mono">${s.peso_medio_g != null ? Number(s.peso_medio_g).toFixed(1) + ' g' : '—'}</td>
+            <td>${pesagemBadge(s.pesagem_status)}</td>
+          </tr>`;
+        }).join('');
+      }
+
+      document.getElementById('sum-sessoes').textContent = rows.length;
+      document.getElementById('sum-unidades').textContent = sumQtd.toLocaleString('pt-BR');
+      document.getElementById('sum-peso').textContent = (sumPeso / 1000).toFixed(2) + ' kg';
+      document.getElementById('sum-medio').textContent = nPeso
+        ? ((sumPeso / Math.max(sumQtd, 1)).toFixed(1) + ' g/un')
+        : '—';
+      document.getElementById('filtro-resumo').textContent = rows.length + ' registro(s)';
+    })
+    .catch(err => {
+      console.error(err);
+      document.getElementById('tabela-sessoes-body').innerHTML =
+        '<tr><td colspan="11" class="text-center text-danger">Erro ao carregar dados</td></tr>';
+    });
+}
+
+function limparFiltros() {
+  ['filtro-cliente','filtro-produto','filtro-lote','filtro-status','filtro-pesagem','filtro-q']
+    .forEach(id => document.getElementById(id).value = '');
+  const hoje = new Date();
+  const de = new Date(hoje); de.setDate(de.getDate() - 30);
+  document.getElementById('filtro-inicio-de').value = de.toISOString().split('T')[0];
+  document.getElementById('filtro-inicio-ate').value = hoje.toISOString().split('T')[0];
+  aplicarFiltros();
+}
+
+function exportarExcel() {
+  window.location.href = `/dashboard/api/filtros/export-excel?${buildParams().toString()}`;
+}
+function exportarPDF() {
+  window.location.href = `/dashboard/api/filtros/export-pdf?${buildParams().toString()}`;
+}
+
+$(document).ready(function() {
+  loadOptions();
+  const hoje = new Date();
+  const de = new Date(hoje); de.setDate(de.getDate() - 30);
+  document.getElementById('filtro-inicio-de').value = de.toISOString().split('T')[0];
+  document.getElementById('filtro-inicio-ate').value = hoje.toISOString().split('T')[0];
+  aplicarFiltros();
+  document.getElementById('filtro-form').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); aplicarFiltros(); }
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,425 @@
+{% extends "dashboard/base.html" %}
+
+{% block title %}CRIA Bebidas — Central de Produção{% endblock %}
+{% block page_header %}{% endblock %}
+
+{% block content %}
+<!-- Hero da central -->
+<div class="panel mb-4" style="background:
+  linear-gradient(120deg, rgba(12,26,36,.96) 0%, rgba(22,50,74,.92) 55%, rgba(196,92,38,.88) 140%),
+  #0c1a24; border:0; color:#fff;">
+  <div class="panel-bd" style="padding:28px 28px 24px">
+    <div class="row align-items-end">
+      <div class="col-lg-8">
+        <div class="d-flex align-items-center mb-2" style="gap:10px">
+          <span class="live-pill" style="background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.2)">
+            <i class="fas fa-circle" style="color:#4ade80"></i> OPERAÇÃO
+          </span>
+          <span style="opacity:.7;font-size:13px">Esteira de contagem + pesagem</span>
+        </div>
+        <h1 class="display mb-2" style="font-size:clamp(1.8rem,3vw,2.6rem);font-weight:700;letter-spacing:-.02em;margin:0">
+          Central de Produção
+        </h1>
+        <p class="mb-0" style="opacity:.78;max-width:540px;font-size:15px">
+          Visão ao vivo da linha CRIA — sessões ativas, unidades produzidas e peso acumulado do turno.
+        </p>
+      </div>
+      <div class="col-lg-4 text-lg-right mt-3 mt-lg-0">
+        <a href="/dashboard/motor" class="btn btn-light btn-lg mr-2" style="font-weight:600">
+          <i class="fas fa-cogs mr-1"></i> Motor
+        </a>
+        <a href="/dashboard/filtros" class="btn btn-accent btn-lg">
+          <i class="fas fa-sliders-h mr-1"></i> Filtros de produção
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- KPIs -->
+<div class="row mb-4">
+  <div class="col-6 col-md-4 col-xl-2 mb-3">
+    <div class="kpi">
+      <div class="kpi-label">Sessões ativas</div>
+      <div class="kpi-value" id="stats-ativas">—</div>
+      <div class="kpi-foot">em contagem agora</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2 mb-3">
+    <div class="kpi">
+      <div class="kpi-label">Produção hoje</div>
+      <div class="kpi-value" id="stats-hoje">—</div>
+      <div class="kpi-foot">unidades</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2 mb-3">
+    <div class="kpi">
+      <div class="kpi-label">Total geral</div>
+      <div class="kpi-value" id="stats-total">—</div>
+      <div class="kpi-foot">unidades</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2 mb-3">
+    <div class="kpi">
+      <div class="kpi-label">Finalizadas</div>
+      <div class="kpi-value" id="stats-finalizadas">—</div>
+      <div class="kpi-foot">hoje</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2 mb-3">
+    <div class="kpi">
+      <div class="kpi-label">Peso hoje</div>
+      <div class="kpi-value" id="stats-peso">—</div>
+      <div class="kpi-foot">esteira de peso</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2 mb-3">
+    <div class="kpi">
+      <div class="kpi-label">Pesagens OK</div>
+      <div class="kpi-value" id="stats-pesagens">—</div>
+      <div class="kpi-foot">concluídas hoje</div>
+    </div>
+  </div>
+</div>
+
+<!-- Linha ativa + gráfico -->
+<div class="row mb-4">
+  <div class="col-xl-5 mb-3">
+    <div class="panel h-100">
+      <div class="panel-hd">
+        <h3><i class="fas fa-stream mr-2" style="color:var(--accent)"></i>Linha em operação</h3>
+        <button class="btn btn-sm btn-outline-secondary" onclick="loadSessoesAtivas()" title="Atualizar">
+          <i class="fas fa-sync-alt"></i>
+        </button>
+      </div>
+      <div class="panel-bd">
+        <div id="linha-ativa-cards" class="row">
+          <div class="col-12 text-muted py-4 text-center">Carregando sessões…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-7 mb-3">
+    <div class="panel h-100">
+      <div class="panel-hd">
+        <h3><i class="fas fa-chart-area mr-2" style="color:var(--accent)"></i>Produção — 30 dias</h3>
+      </div>
+      <div class="panel-bd">
+        <div style="height:280px"><canvas id="chart-producao-dia"></canvas></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row mb-4">
+  <div class="col-md-6 mb-3">
+    <div class="panel h-100">
+      <div class="panel-hd"><h3>Top clientes</h3></div>
+      <div class="panel-bd"><div style="height:260px"><canvas id="chart-producao-cliente"></canvas></div></div>
+    </div>
+  </div>
+  <div class="col-md-6 mb-3">
+    <div class="panel h-100">
+      <div class="panel-hd"><h3>Top produtos</h3></div>
+      <div class="panel-bd"><div style="height:260px"><canvas id="chart-producao-produto"></canvas></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-lg-5 mb-3">
+    <div class="panel h-100">
+      <div class="panel-hd">
+        <h3>Leituras ao vivo</h3>
+        <button class="btn btn-sm btn-outline-secondary" onclick="loadLeituras()"><i class="fas fa-sync-alt"></i></button>
+      </div>
+      <div class="panel-bd p-0">
+        <div class="table-responsive" style="max-height:360px;overflow-y:auto">
+          <table class="table table-sm mb-0">
+            <thead>
+              <tr>
+                <th>Hora</th>
+                <th>Produto</th>
+                <th>+un</th>
+              </tr>
+            </thead>
+            <tbody id="leituras-tbody">
+              <tr><td colspan="3" class="text-center text-muted py-3">Carregando…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-7 mb-3">
+    <div class="panel h-100">
+      <div class="panel-hd">
+        <h3>Histórico recente da linha</h3>
+        <a href="/dashboard/filtros" class="btn btn-sm btn-accent">Ver tudo</a>
+      </div>
+      <div class="panel-bd p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Status</th>
+                <th>Cliente</th>
+                <th>Lote</th>
+                <th>Qtd</th>
+                <th>Peso</th>
+                <th>Pesagem</th>
+              </tr>
+            </thead>
+            <tbody id="sessoes-ativas-tbody">
+              <tr><td colspan="7" class="text-center text-muted py-3">Carregando…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let chartProducaoDia, chartProducaoCliente, chartProducaoProduto;
+const ACCENT = '#c45c26';
+const STEEL = '#16324a';
+
+function fmtNum(n) {
+  return Number(n || 0).toLocaleString('pt-BR');
+}
+
+function loadStats() {
+  fetch('/dashboard/api/stats/live')
+    .then(res => res.json())
+    .then(data => {
+      document.getElementById('stats-ativas').textContent = fmtNum(data.sessoes_ativas);
+      document.getElementById('stats-hoje').textContent = fmtNum(data.producao_hoje);
+      document.getElementById('stats-total').textContent = fmtNum(data.producao_total);
+      document.getElementById('stats-finalizadas').textContent = fmtNum(data.sessoes_finalizadas_hoje);
+      document.getElementById('stats-peso').textContent =
+        data.peso_hoje_kg != null ? Number(data.peso_hoje_kg).toFixed(2) + ' kg' : '—';
+      document.getElementById('stats-pesagens').textContent = fmtNum(data.pesagens_concluidas_hoje);
+    })
+    .catch(err => console.error(err));
+}
+
+function chartDefaults() {
+  Chart.defaults.font.family = "'IBM Plex Sans', sans-serif";
+  Chart.defaults.color = '#5b6b7a';
+}
+
+function loadGraficos() {
+  chartDefaults();
+  fetch('/dashboard/api/stats/graficos')
+    .then(res => res.json())
+    .then(data => {
+      const labels = (data.producao_por_dia || []).map(d => {
+        let diaStr = String(d.dia || '');
+        if (diaStr.includes('T')) diaStr = diaStr.split('T')[0];
+        if (/^\d{4}-\d{2}-\d{2}$/.test(diaStr)) {
+          const [y, m, day] = diaStr.split('-').map(Number);
+          return new Date(y, m - 1, day).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+        }
+        return diaStr;
+      });
+
+      const ctxDia = document.getElementById('chart-producao-dia').getContext('2d');
+      if (chartProducaoDia) chartProducaoDia.destroy();
+      const grad = ctxDia.createLinearGradient(0, 0, 0, 280);
+      grad.addColorStop(0, 'rgba(196,92,38,.35)');
+      grad.addColorStop(1, 'rgba(196,92,38,0)');
+      chartProducaoDia = new Chart(ctxDia, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Unidades',
+            data: (data.producao_por_dia || []).map(d => d.total),
+            borderColor: ACCENT,
+            backgroundColor: grad,
+            borderWidth: 2.5,
+            fill: true,
+            tension: 0.35,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false } },
+            y: { beginAtZero: true, grid: { color: 'rgba(12,26,36,.06)' } }
+          }
+        }
+      });
+
+      const ctxCliente = document.getElementById('chart-producao-cliente').getContext('2d');
+      if (chartProducaoCliente) chartProducaoCliente.destroy();
+      chartProducaoCliente = new Chart(ctxCliente, {
+        type: 'bar',
+        data: {
+          labels: (data.producao_por_cliente || []).map(d => d.cliente),
+          datasets: [{
+            data: (data.producao_por_cliente || []).map(d => d.total),
+            backgroundColor: STEEL,
+            borderRadius: 6,
+            barThickness: 14,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          indexAxis: 'y',
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { beginAtZero: true, grid: { color: 'rgba(12,26,36,.06)' } },
+            y: { grid: { display: false } }
+          }
+        }
+      });
+
+      const ctxProduto = document.getElementById('chart-producao-produto').getContext('2d');
+      if (chartProducaoProduto) chartProducaoProduto.destroy();
+      chartProducaoProduto = new Chart(ctxProduto, {
+        type: 'bar',
+        data: {
+          labels: (data.producao_por_produto || []).map(d => d.produto),
+          datasets: [{
+            data: (data.producao_por_produto || []).map(d => d.total),
+            backgroundColor: ACCENT,
+            borderRadius: 6,
+            barThickness: 14,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          indexAxis: 'y',
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { beginAtZero: true, grid: { color: 'rgba(12,26,36,.06)' } },
+            y: { grid: { display: false } }
+          }
+        }
+      });
+    })
+    .catch(err => console.error(err));
+}
+
+function loadLeituras() {
+  fetch('/dashboard/api/stats/leituras-live')
+    .then(res => res.json())
+    .then(data => {
+      const tbody = document.getElementById('leituras-tbody');
+      const rows = data.leituras || [];
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3">Sem leituras recentes</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rows.slice(0, 25).map(l => `
+        <tr>
+          <td class="mono">${new Date(l.timestamp).toLocaleTimeString('pt-BR')}</td>
+          <td>${l.produto || '-'}</td>
+          <td class="mono"><strong>+${l.contagem_incremental}</strong></td>
+        </tr>
+      `).join('');
+    })
+    .catch(() => {
+      document.getElementById('leituras-tbody').innerHTML =
+        '<tr><td colspan="3" class="text-center text-danger">Erro ao carregar</td></tr>';
+    });
+}
+
+function fmtPeso(g) {
+  if (g == null) return '—';
+  const n = Number(g);
+  return n >= 1000 ? (n / 1000).toFixed(2) + ' kg' : n.toFixed(0) + ' g';
+}
+
+function loadSessoesAtivas() {
+  fetch('/dashboard/api/stats/sessoes-ativas')
+    .then(res => res.json())
+    .then(data => {
+      const all = data.sessoes || [];
+      const ativas = all.filter(s => s.status === 'ativa');
+      const cards = document.getElementById('linha-ativa-cards');
+
+      if (!ativas.length) {
+        cards.innerHTML = `
+          <div class="col-12">
+            <div class="session-card text-center py-4">
+              <div class="mb-2" style="font-size:28px;opacity:.35"><i class="fas fa-pause-circle"></i></div>
+              <div class="display" style="font-weight:650">Nenhuma sessão ativa</div>
+              <div class="text-muted mt-1" style="font-size:13px">Aguardando início no app de chão de fábrica</div>
+            </div>
+          </div>`;
+      } else {
+        cards.innerHTML = ativas.slice(0, 4).map(s => `
+          <div class="col-md-6 mb-3">
+            <div class="session-card active">
+              <div class="d-flex justify-content-between align-items-start mb-2">
+                <div>
+                  <span class="status-dot on"></span>
+                  <strong class="mono">#${s.sessao_id}</strong>
+                </div>
+                <span class="badge badge-success">ATIVA</span>
+              </div>
+              <div style="font-size:13px;color:var(--muted)">${s.cliente || '—'} · ${s.produto || '—'}</div>
+              <div class="mt-1"><strong>Lote ${s.lote || '—'}</strong></div>
+              <div class="qty mt-2">${fmtNum(s.total_acumulado)}</div>
+              <div style="font-size:12px;color:var(--muted)">unidades acumuladas</div>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      const tbody = document.getElementById('sessoes-ativas-tbody');
+      if (!all.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Sem sessões</td></tr>';
+        return;
+      }
+      tbody.innerHTML = all.slice(0, 12).map(s => {
+        const pesagem = (s.pesagem_status || 'pendente');
+        const pesagemBadge = pesagem === 'concluida'
+          ? '<span class="badge badge-success">OK</span>'
+          : pesagem === 'em_andamento'
+            ? '<span class="badge badge-warning">…</span>'
+            : '<span class="badge badge-secondary">—</span>';
+        const statusBadge = s.status === 'ativa'
+          ? '<span class="badge badge-success">Ativa</span>'
+          : '<span class="badge badge-secondary">Finalizada</span>';
+        return `<tr>
+          <td class="mono">#${s.sessao_id}</td>
+          <td>${statusBadge}</td>
+          <td>${s.cliente || '-'}</td>
+          <td><strong>${s.lote || '-'}</strong></td>
+          <td class="mono"><strong>${fmtNum(s.total_acumulado)}</strong></td>
+          <td class="mono">${fmtPeso(s.peso_total_g)}</td>
+          <td>${pesagemBadge}</td>
+        </tr>`;
+      }).join('');
+    })
+    .catch(() => {
+      document.getElementById('sessoes-ativas-tbody').innerHTML =
+        '<tr><td colspan="7" class="text-center text-danger">Erro ao carregar</td></tr>';
+    });
+}
+
+$(document).ready(function() {
+  loadStats();
+  loadGraficos();
+  loadLeituras();
+  loadSessoesAtivas();
+  setInterval(loadStats, 5000);
+  setInterval(loadLeituras, 5000);
+  setInterval(loadSessoesAtivas, 5000);
+  setInterval(loadGraficos, 30000);
+});
+</script>
+{% endblock %}

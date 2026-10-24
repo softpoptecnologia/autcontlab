@@ -1,0 +1,171 @@
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           ARQUITETURA DA APLICAÇÃO                             │
+│                        Sistema de Contagem de Garrafas                         │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────┐    HTTP/REST     ┌─────────────────┐    SQL     ┌─────────────────┐
+│                 │   ────────────►   │                 │ ────────► │                 │
+│  FLUTTER APP    │                  │   FLASK API   │           │    MYSQL DB        │
+│                 │ ◄──────────────── │                 │ ◄──────── │                 │
+│ • HomePage      │                  │ • /sessoes     │           │ • sessoes_      │
+│ • SelectSession │                  │ • /leituras    │           │   producao     │
+│ • SessionPage   │                  │ • /clientes    │           │ • leituras     │
+│ • HistoryPage   │                  │ • /produtos    │           │ • clientes     │
+│ • SettingsPage  │                  │ • /dispositivos│           │ • produtos     │
+│                 │                  │                 │           │ • dispositivos │
+└─────────────────┘                  └─────────────────┘           └─────────────────┘
+         │                                     │
+         │                                     │ MQTT Publish
+         │                                     ▼
+         │                            ┌─────────────────┐
+         │                            │                 │
+         │                            │  MQTT BROKER   │
+         │                            │   Port 1883     │
+         │                            │                 │
+         │                            └─────────────────┘
+         │                                     │
+         │                                     │ MQTT Topic:
+         │                                     │ factory/default/line/1/
+         │                                     │ device/esteira1/cmd
+         │                                     ▼
+         │                            ┌─────────────────┐
+         │                            │                 │
+         │                            │   ESP32 DEVICE │
+         │                            │                 │
+         │                            │ • WiFi Client   │
+         │                            │ • MQTT Client   │
+         │                            │ • HTTP Client   │
+         │                            │ • Sensor E18-   │
+         │                            │   D80NK         │
+         │                            │ • Stepper Motor │
+         │                            │                 │
+         │                            └─────────────────┘
+         │                                     │
+         │                                     │ HTTP POST
+         │                                     │ /leituras
+         │                                     ▼
+         │                            ┌─────────────────┐
+         │                            │                 │
+         │                            │   SENSOR        │
+         │                            │   E18-D80NK     │
+         │                            │   (Infravermelho)│
+         │                            │                 │
+         │                            └─────────────────┘
+         │                                     │
+         │                                     │ Detecta
+         │                                     │ Garrafas
+         │                                     ▼
+         │                            ┌─────────────────┐
+         │                            │                 │
+         │                            │   MOTOR         │
+         │                            │   STEPPER       │
+         │                            │   (Esteira)     │
+         │                            │                 │
+         │                            └─────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              FLUXO DE DADOS                                    │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+1. INÍCIO DE SESSÃO:
+   Flutter → POST /sessoes → Flask → MySQL → MQTT → ESP32 → Liga Motor
+
+2. CONTAGEM:
+   Sensor → ESP32 → HTTP POST /leituras → Flask → MySQL → Flutter (atualiza UI)
+
+3. FINALIZAÇÃO:
+   Flutter → POST /sessoes/{id}/finalizar → Flask → MySQL → MQTT → ESP32 → Para Motor
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                            PROTOCOLOS DE COMUNICAÇÃO                           │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────┐    HTTP/REST     ┌─────────────────┐
+│                 │   ────────────►   │                 │
+│   FLUTTER       │                  │     FLASK       │
+│                 │ ◄──────────────── │                 │
+│ • http package  │                  │ • Flask-CORS    │
+│ • JSON parsing  │                  │ • JSON handling │
+│ • Error handling│                  │ • SQLAlchemy    │
+└─────────────────┘                  └─────────────────┘
+         │                                     │
+         │                                     │ MQTT
+         │                                     ▼
+         │                            ┌─────────────────┐
+         │                            │                 │
+         │                            │   MQTT BROKER   │
+         │                            │                 │
+         │                            │ • paho-mqtt     │
+         │                            │ • Topic routing │
+         │                            │ • QoS 1         │
+         │                            │                 │
+         │                            └─────────────────┘
+         │                                     │
+         │                                     │ MQTT
+         │                                     ▼
+         │                            ┌─────────────────┐
+         │                            │                 │
+         │                            │     ESP32       │
+         │                            │                 │
+         │                            │ • PubSubClient  │
+         │                            │ • HTTPClient    │
+         │                            │ • WiFi          │
+         │                            │ • ArduinoJson   │
+         │                            │                 │
+         │                            └─────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              CONFIGURAÇÕES DE REDE                             │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+WiFi Network: "Espaço Cria" (@@EspacoCria2025@@)
+├── Flask API: 192.168.0.104:5000
+├── MQTT Broker: 172.16.3.108:1883
+└── ESP32: DHCP (conecta automaticamente)
+
+Endpoints da API:
+├── GET  /health          - Status da API
+├── GET  /clientes        - Lista clientes
+├── GET  /produtos        - Lista produtos
+├── GET  /dispositivos    - Lista dispositivos
+├── POST /sessoes         - Criar sessão
+├── POST /sessoes/{id}/finalizar - Finalizar sessão
+├── GET  /sessoes         - Listar sessões
+└── POST /leituras        - Registrar leituras
+
+MQTT Topics:
+└── factory/default/line/1/device/esteira1/cmd
+    ├── {"action": "start", "sessao_id": 123}
+    └── {"action": "stop", "sessao_id": 123}
+
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              COMPONENTES TÉCNICOS                              │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+FRONTEND (Flutter):
+├── Framework: Flutter/Dart
+├── Estado: SharedPreferences
+├── HTTP: http package
+├── UI: Material Design 3
+└── Arquitetura: MVC
+
+BACKEND (Flask):
+├── Framework: Flask (Python)
+├── CORS: Habilitado
+├── Database: MySQL + SQLAlchemy
+├── MQTT: paho-mqtt
+└── Logging: Python logging
+
+DISPOSITIVO (ESP32):
+├── Microcontrolador: ESP32
+├── Sensor: E18-D80NK (infravermelho)
+├── Motor: Stepper motor
+├── Comunicação: WiFi + HTTP + MQTT
+└── Linguagem: Arduino C++
+
+BANCO DE DADOS (MySQL):
+├── sessoes_producao - Sessões de produção
+├── leituras - Leituras do sensor
+├── clientes - Clientes
+├── produtos - Produtos
+└── dispositivos - Dispositivos IoT

@@ -1,0 +1,505 @@
+{% extends "dashboard/base.html" %}
+
+{% block title %}CRIA Bebidas — Motor da esteira{% endblock %}
+{% block page_title %}Motor da esteira{% endblock %}
+{% block page_subtitle %}
+  <p class="mb-0 mt-2" style="color:var(--muted);max-width:640px">
+    Ajuste rotação, direção e retenção em tempo real. Os padrões são os do firmware;
+    qualquer mudança é enviada na hora para o ESP32. Use restaurar para voltar ao original.
+  </p>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  .motor-grid { display:grid; grid-template-columns: 1.4fr .9fr; gap:18px; }
+  @media (max-width: 991px) { .motor-grid { grid-template-columns: 1fr; } }
+
+  .ctrl-row { margin-bottom: 22px; }
+  .ctrl-label {
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--muted); margin-bottom:8px;
+  }
+  .ctrl-value {
+    font-family:'IBM Plex Mono', monospace; font-size:1.35rem; font-weight:700; color:var(--ink);
+  }
+  .ctrl-hint { font-size:12px; color:var(--muted); margin-top:6px; }
+
+  input[type=range].motor-range {
+    width:100%; accent-color: var(--accent); height:6px; cursor:pointer;
+  }
+
+  .dir-pair { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .dir-btn {
+    border:1px solid var(--line); background:#f7fafc; border-radius:12px;
+    padding:14px 12px; text-align:center; cursor:pointer; font-weight:600;
+    color:var(--steel); transition: all .12s ease;
+  }
+  .dir-btn:hover { border-color: var(--accent); }
+  .dir-btn.active {
+    background: linear-gradient(160deg, #fff7f2, #fde8dc);
+    border-color: var(--accent); color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  .dir-btn small { display:block; font-weight:500; color:var(--muted); margin-top:2px; }
+
+  .switch-row {
+    display:flex; align-items:center; justify-content:space-between;
+    border:1px solid var(--line); border-radius:12px; padding:12px 14px; background:#fbfcfe;
+    margin-bottom:10px;
+  }
+  .switch-row strong { display:block; font-size:14px; }
+  .switch-row span { font-size:12px; color:var(--muted); }
+
+  .toggle { position:relative; width:46px; height:26px; flex-shrink:0; }
+  .toggle input { opacity:0; width:0; height:0; }
+  .toggle .track {
+    position:absolute; inset:0; background:#c5d0da; border-radius:999px; cursor:pointer;
+    transition: background .15s;
+  }
+  .toggle .track::after {
+    content:''; position:absolute; width:20px; height:20px; border-radius:50%;
+    background:#fff; top:3px; left:3px; transition: transform .15s;
+    box-shadow: 0 1px 4px rgba(12,26,36,.25);
+  }
+  .toggle input:checked + .track { background: var(--ok); }
+  .toggle input:checked + .track::after { transform: translateX(20px); }
+
+  .status-bar {
+    display:flex; flex-wrap:wrap; gap:8px; align-items:center;
+    font-size:12px; color:var(--muted); margin-top:14px;
+  }
+  .chip {
+    display:inline-flex; align-items:center; gap:6px;
+    border-radius:999px; padding:5px 10px; font-weight:600; font-size:11px;
+    letter-spacing:.04em; text-transform:uppercase;
+  }
+  .chip.ok { background:#e7f6ee; color:var(--ok); }
+  .chip.warn { background:#fff4e5; color:#b45309; }
+  .chip.muted { background:#eef2f6; color:var(--muted); }
+  .chip.live { background:#e7f6ee; color:var(--ok); }
+
+  .defaults-list { margin:0; padding:0; list-style:none; }
+  .defaults-list li {
+    display:flex; justify-content:space-between; padding:8px 0;
+    border-bottom:1px dashed var(--line); font-size:13px;
+  }
+  .defaults-list li:last-child { border-bottom:0; }
+  .defaults-list .k { color:var(--muted); }
+  .defaults-list .v { font-family:'IBM Plex Mono', monospace; font-weight:650; }
+
+  .btn-ghost {
+    background:#fff; border:1px solid var(--line); color:var(--steel);
+    font-weight:600; border-radius:10px;
+  }
+  .btn-ghost:hover { border-color:var(--accent); color:var(--accent); }
+
+  .last-cmd {
+    margin-top:14px; padding:12px 14px; border:1px dashed var(--line);
+    border-radius:12px; background:#f8fafc;
+  }
+  .last-cmd pre {
+    margin:8px 0 0; font-family:'IBM Plex Mono', monospace; font-size:12px;
+    white-space:pre-wrap; word-break:break-all; color:var(--ink); line-height:1.45;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="motor-grid">
+  <div class="panel">
+    <div class="panel-hd">
+      <h3><i class="fas fa-sliders-h mr-2" style="color:var(--accent)"></i>Ajuste ao vivo</h3>
+      <span id="live-chip" class="chip live"><i class="fas fa-circle" style="font-size:7px"></i> aplica na hora</span>
+    </div>
+    <div class="panel-bd">
+      <div class="ctrl-row">
+        <div class="ctrl-label"><span>Dispositivo</span></div>
+        <select id="dispositivo" class="form-control" style="border-radius:10px;height:42px"></select>
+      </div>
+
+      <div class="ctrl-row">
+        <div class="ctrl-label">
+          <span>Rotação</span>
+          <span class="ctrl-value"><span id="rpm-val">47</span> RPM</span>
+        </div>
+        <input id="rpm" class="motor-range" type="range" min="5" max="200" step="1" value="50">
+        <div class="ctrl-hint">Padrão original: 50 RPM em meio passo. RPM alto esquenta o A4988 e perde torque.</div>
+      </div>
+
+      <div class="ctrl-row">
+        <div class="ctrl-label"><span>Direção</span></div>
+        <div class="dir-pair">
+          <button type="button" class="dir-btn active" id="dir-0" onclick="setDir(0)">
+            Direção padrão
+            <small>DIR LOW · valor de fábrica</small>
+          </button>
+          <button type="button" class="dir-btn" id="dir-1" onclick="setDir(1)">
+            Direção invertida
+            <small>DIR HIGH · sentido oposto</small>
+          </button>
+        </div>
+      </div>
+
+      <div class="ctrl-row">
+        <div class="ctrl-label">
+          <span>Torque (software)</span>
+          <span class="ctrl-value"><span id="torque-val">80</span>%</span>
+        </div>
+        <input id="torque" class="motor-range" type="range" min="10" max="100" step="1" value="80">
+        <div class="ctrl-hint">
+          Só a rampa de arranque. O original não tinha isso e partia em 50 RPM. 80% fica perto desse comportamento.
+        </div>
+      </div>
+
+      <div class="ctrl-row mb-2">
+        <div class="switch-row">
+          <div>
+            <strong>Motor ligado</strong>
+            <span>Liga/desliga os pulsos STEP sem precisar de sessão</span>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="motor_enabled" checked>
+            <span class="track"></span>
+          </label>
+        </div>
+        <div class="switch-row">
+          <div>
+            <strong>Torque de retenção</strong>
+            <span>A4988: deixe desligado. Ligado só segura o eixo ~8 s ao parar e depois dorme (senão o chip ferve)</span>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="hold">
+            <span class="track"></span>
+          </label>
+        </div>
+      </div>
+
+      <details class="mb-3">
+        <summary style="cursor:pointer;font-weight:600;color:var(--steel)">Avançado — piso de pulso (torque em alta velocidade)</summary>
+        <div class="ctrl-row mt-3 mb-0">
+          <div class="ctrl-label">
+            <span>Intervalo mínimo STEP</span>
+            <span class="ctrl-value"><span id="pulse-val">400</span> µs</span>
+          </div>
+          <input id="min_half_us" class="motor-range" type="range" min="50" max="2000" step="10" value="200">
+          <div class="ctrl-hint">
+            Original ~3 µs. Padrão agora 200 µs. 400 µs limitava a velocidade e o motor parecia fraco.
+          </div>
+        </div>
+      </details>
+
+      <div class="d-flex flex-wrap" style="gap:10px">
+        <button type="button" class="btn btn-accent" onclick="aplicar(true)">
+          <i class="fas fa-paper-plane mr-1"></i> Aplicar agora
+        </button>
+        <button type="button" class="btn btn-ghost" onclick="restaurar()">
+          <i class="fas fa-undo mr-1"></i> Restaurar padrões
+        </button>
+      </div>
+
+      <div class="status-bar">
+        <span id="mqtt-chip" class="chip muted">mqtt…</span>
+        <span id="status-chip" class="chip muted">aguardando</span>
+        <span id="status-msg">Carregando configuração…</span>
+      </div>
+      <div id="last-cmd-box" class="last-cmd">
+        <div class="ctrl-label" style="margin-bottom:6px"><span>Último comando MQTT</span></div>
+        <div id="last-cmd-meta" class="ctrl-hint">Ainda não enviou. Clique em Aplicar agora.</div>
+        <pre id="last-mqtt">—</pre>
+      </div>
+      <div class="ctrl-hint mt-2">
+        O ESP só gira a esteira quando o painel ou uma sessão mandam ligar.
+        O slider de torque <strong>entra no JSON</strong> (campo <code>torque</code>), mas só muda a rampa de arranque.
+        A corrente máxima continua no trimpot do A4988. Sem dissipador o chip queima.
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel mb-3">
+      <div class="panel-hd"><h3>Padrões de fábrica</h3></div>
+      <div class="panel-bd">
+        <ul class="defaults-list">
+          <li><span class="k">Rotação</span><span class="v" id="def-rpm">50 RPM</span></li>
+          <li><span class="k">Direção</span><span class="v" id="def-dir">DIR LOW</span></li>
+          <li><span class="k">Retenção</span><span class="v" id="def-hold">desligada</span></li>
+          <li><span class="k">Torque</span><span class="v" id="def-torque">80%</span></li>
+          <li><span class="k">Piso de pulso</span><span class="v" id="def-pulse">200 µs</span></li>
+          <li><span class="k">Motor no boot</span><span class="v" id="def-mot">parado</span></li>
+        </ul>
+        <div id="default-badge" class="chip ok mt-2">usando os padrões do código</div>
+      </div>
+    </div>
+    <div class="panel mb-3">
+      <div class="panel-hd"><h3>A4988 esquentando</h3></div>
+      <div class="panel-bd" style="font-size:13px;color:var(--muted);line-height:1.55">
+        <p class="mb-2"><strong style="color:var(--ink)">A4988 quente + motor fraco = o chip está se protegendo.</strong> Acima de ~1 A ele ferve, corta corrente sozinho e você trava o eixo com a mão. Girar o trimpot no horário piora os dois.</p>
+        <ul class="pl-3 mb-2">
+          <li class="mb-1">ENABLE do A4988 no <strong>D6</strong> (não no “27”). STEP <strong>D3</strong>, DIR <strong>D2</strong>, sensor <strong>D4</strong>.</li>
+          <li class="mb-1"><strong>Dissipador colado agora.</strong> Sem isso o A4988 não entrega torque.</li>
+          <li class="mb-1">Trimpot <strong>anti-horário</strong> até o chip ficar só quente, não queimar. Aí a força volta.</li>
+          <li class="mb-1">MS1 no 3,3 V da Wemos, MS2 e MS3 no GND (meio passo). Os três no GND = passo inteiro, treme e perde força.</li>
+          <li class="mb-1">SLEEP e RESET do A4988 juntos e no 5 V / 3,3 V do módulo (geralmente já vêm jumpeados).</li>
+          <li class="mb-1">Painel em <strong>35–50 RPM</strong>. RPM alto mata torque. Slider de torque não aumenta corrente.</li>
+        </ul>
+        <p class="mb-0">Travável com a mão num NEMA 17 + A4988 é normal. Se precisar de esteira que não trava, o A4988 não dá conta — aí é TMC2209 ou motor com caixa de redução.</p>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-hd"><h3>Como usar</h3></div>
+      <div class="panel-bd" style="font-size:13px;color:var(--muted);line-height:1.55">
+        <ol class="pl-3 mb-0">
+          <li class="mb-2">Placa <strong>Wemos D1 R32</strong>. Grave este firmware. Fiação: sensor <strong>D4</strong>, STEP <strong>D3</strong>, DIR <strong>D2</strong>, ENABLE <strong>D6</strong>.</li>
+          <li class="mb-2">No A4988: MS1 em HIGH, MS2 e MS3 no GND (meio passo, como o original).</li>
+          <li class="mb-2">MQTT verde. 50 RPM / retenção desligada. Sessão no app liga o motor; finalizar desliga o driver.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let defaults = { rpm: 50, dir: 0, hold: false, min_half_us: 200, torque: 80, motor_enabled: false };
+let debounceTimer = null;
+let applying = false;
+let loaded = false;
+
+function dispositivo() {
+  return document.getElementById('dispositivo').value || 'esteira1';
+}
+
+function setDir(v) {
+  document.getElementById('dir-0').classList.toggle('active', v === 0);
+  document.getElementById('dir-1').classList.toggle('active', v === 1);
+  document.getElementById('dir-0').dataset.value = '0';
+  document.getElementById('dir-1').dataset.value = '1';
+  window._dir = v;
+  if (loaded) aplicarDebounced();
+}
+
+function currentPayload() {
+  return {
+    dispositivo_codigo: dispositivo(),
+    rpm: Number(document.getElementById('rpm').value),
+    dir: window._dir ? 1 : 0,
+    hold: document.getElementById('hold').checked,
+    min_half_us: Number(document.getElementById('min_half_us').value),
+    torque: Number(document.getElementById('torque').value),
+    motor_enabled: document.getElementById('motor_enabled').checked,
+  };
+}
+
+function fillForm(cfg, defs) {
+  loaded = false;
+  defaults = defs || defaults;
+  const c = cfg || defaults;
+  document.getElementById('rpm').value = c.rpm;
+  document.getElementById('rpm-val').textContent = c.rpm;
+  document.getElementById('min_half_us').value = c.min_half_us;
+  document.getElementById('pulse-val').textContent = c.min_half_us;
+  document.getElementById('torque').value = c.torque != null ? c.torque : 90;
+  document.getElementById('torque-val').textContent = document.getElementById('torque').value;
+  document.getElementById('hold').checked = !!c.hold;
+  document.getElementById('motor_enabled').checked = !!c.motor_enabled;
+  setDir(c.dir ? 1 : 0);
+  document.getElementById('def-rpm').textContent = defaults.rpm + ' RPM';
+  document.getElementById('def-dir').textContent = defaults.dir ? 'DIR HIGH' : 'DIR LOW';
+  document.getElementById('def-hold').textContent = defaults.hold ? 'ligada' : 'desligada';
+  document.getElementById('def-pulse').textContent = defaults.min_half_us + ' µs';
+  document.getElementById('def-torque').textContent = (defaults.torque != null ? defaults.torque : 90) + '%';
+  document.getElementById('def-mot').textContent = defaults.motor_enabled ? 'ligado' : 'desligado';
+  loaded = true;
+}
+
+function setMqttChip(connected, host) {
+  const el = document.getElementById('mqtt-chip');
+  if (!el) return;
+  if (connected) {
+    el.className = 'chip ok';
+    el.textContent = 'MQTT ok' + (host ? ' · ' + host : '');
+  } else {
+    el.className = 'chip warn';
+    el.textContent = 'MQTT offline';
+  }
+}
+
+async function pingMqtt() {
+  try {
+    const h = await fetch('/health').then(r => r.json());
+    setMqttChip(!!h.mqtt_connected, h.mqtt_host);
+    return !!h.mqtt_connected;
+  } catch (_) {
+    setMqttChip(false);
+    return false;
+  }
+}
+
+function setStatus(kind, msg) {
+  const chip = document.getElementById('status-chip');
+  chip.className = 'chip ' + kind;
+  chip.textContent = kind === 'ok' ? 'enviado' : kind === 'warn' ? 'atenção' : 'status';
+  document.getElementById('status-msg').textContent = msg;
+}
+
+function showLastMqtt(data) {
+  const pre = document.getElementById('last-mqtt');
+  const meta = document.getElementById('last-cmd-meta');
+  if (!pre || !meta) return;
+  const payload = data && data.mqtt_payload;
+  if (!payload) {
+    pre.textContent = '—';
+    return;
+  }
+  const topics = (data.mqtt_topics || []).join('  +  ');
+  const tq = payload.torque;
+  meta.textContent = (data.mqtt_ok ? 'Publicado' : 'Não publicado') +
+    ' · torque=' + tq + '%' +
+    (topics ? ' · ' + topics : '');
+  pre.textContent = JSON.stringify(payload, null, 2);
+}
+
+function updateDefaultBadge(isDefault) {
+  const el = document.getElementById('default-badge');
+  if (isDefault) {
+    el.className = 'chip ok mt-2';
+    el.textContent = 'usando os padrões do código';
+  } else {
+    el.className = 'chip warn mt-2';
+    el.textContent = 'ajustado em relação ao padrão';
+  }
+}
+
+async function loadDispositivos() {
+  const sel = document.getElementById('dispositivo');
+  try {
+    const rows = await fetch('/dispositivos').then(r => r.json());
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) {
+      sel.innerHTML = '<option value="esteira1">esteira1</option>';
+      return;
+    }
+    sel.innerHTML = list.map(d =>
+      `<option value="${d.codigo}">${d.codigo}${d.descricao ? ' — ' + d.descricao : ''}</option>`
+    ).join('');
+  } catch (e) {
+    sel.innerHTML = '<option value="esteira1">esteira1</option>';
+  }
+}
+
+async function carregar() {
+  clearTimeout(debounceTimer);
+  try {
+    const data = await fetch('/motor/config?dispositivo_codigo=' + encodeURIComponent(dispositivo()))
+      .then(r => r.json());
+    fillForm(data.current, data.defaults);
+    if (data.limits && data.limits.rpm) {
+      document.getElementById('rpm').min = data.limits.rpm[0];
+      document.getElementById('rpm').max = data.limits.rpm[1];
+    }
+    if (data.limits && data.limits.min_half_us) {
+      document.getElementById('min_half_us').min = data.limits.min_half_us[0];
+      document.getElementById('min_half_us').max = data.limits.min_half_us[1];
+    }
+    updateDefaultBadge(!!data.is_default);
+    setMqttChip(!!data.mqtt_connected, data.mqtt_host);
+    setStatus('muted', data.mqtt_connected
+      ? 'MQTT ligado. Ajuste vai para o ESP na hora.'
+      : 'MQTT offline — o Flask não está no broker. Comandos não chegam no ESP.');
+  } catch (e) {
+    setStatus('warn', 'Não foi possível carregar a configuração.');
+  }
+}
+
+async function aplicar(manual) {
+  if (applying) return;
+  applying = true;
+  if (manual) setStatus('muted', 'Enviando para o ESP32…');
+  try {
+    const res = await fetch('/motor/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(currentPayload()),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'falha');
+    updateDefaultBadge(!!data.is_default);
+    showLastMqtt(data);
+    const when = new Date().toLocaleTimeString('pt-BR');
+    const tq = data.mqtt_payload && data.mqtt_payload.torque != null
+      ? data.mqtt_payload.torque : currentPayload().torque;
+    if (data.mqtt_ok) {
+      setMqttChip(true, data.mqtt_host);
+      setStatus('ok', 'MQTT enviou torque=' + tq + '% às ' + when + '.');
+    } else {
+      setMqttChip(false, data.mqtt_host);
+      setStatus('warn', 'JSON com torque=' + tq + '% montado às ' + when + ', mas o MQTT está offline.');
+    }
+    if (data.save_warning) {
+      setStatus('warn', 'MQTT ok, mas o banco não gravou: ' + data.save_warning);
+    }
+  } catch (e) {
+    setStatus('warn', 'Falha ao aplicar: ' + e.message);
+  } finally {
+    applying = false;
+  }
+}
+
+function aplicarDebounced() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => aplicar(false), 280);
+}
+
+async function restaurar() {
+  if (!confirm('Restaurar os padrões originais (50 RPM, meio passo, retenção desligada)?')) return;
+  applying = true;
+  setStatus('muted', 'Restaurando padrões…');
+  try {
+    const res = await fetch('/motor/config/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dispositivo_codigo: dispositivo() }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'falha');
+    fillForm(data.current, data.defaults);
+    updateDefaultBadge(true);
+    showLastMqtt(data);
+    const when = new Date().toLocaleTimeString('pt-BR');
+    if (data.mqtt_ok) {
+      setMqttChip(true, data.mqtt_host);
+      setStatus('ok', 'Padrões restaurados no ESP32 às ' + when + '.');
+    } else {
+      setMqttChip(false, data.mqtt_host);
+      setStatus('warn', 'Padrões restaurados no painel, mas o MQTT está offline.');
+    }
+  } catch (e) {
+    setStatus('warn', 'Falha ao restaurar: ' + e.message);
+  } finally {
+    applying = false;
+  }
+}
+
+document.getElementById('rpm').addEventListener('input', function() {
+  document.getElementById('rpm-val').textContent = this.value;
+  aplicarDebounced();
+});
+document.getElementById('torque').addEventListener('input', function() {
+  document.getElementById('torque-val').textContent = this.value;
+  aplicarDebounced();
+});
+document.getElementById('min_half_us').addEventListener('input', function() {
+  document.getElementById('pulse-val').textContent = this.value;
+  aplicarDebounced();
+});
+document.getElementById('hold').addEventListener('change', aplicarDebounced);
+document.getElementById('motor_enabled').addEventListener('change', aplicarDebounced);
+document.getElementById('dispositivo').addEventListener('change', carregar);
+
+loadDispositivos().then(carregar);
+pingMqtt();
+setInterval(pingMqtt, 4000);
+</script>
+{% endblock %}

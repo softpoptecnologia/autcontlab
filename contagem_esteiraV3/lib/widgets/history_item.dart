@@ -7,7 +7,10 @@ class HistoryItem extends StatelessWidget {
   final String status;
   final String cliente;
   final String produto;
+  final String lote;
   final int total;
+  final dynamic pesoTotalG;
+  final String pesagemStatus;
   final String inicio;
   final String fim;
   final VoidCallback? onTap;
@@ -18,7 +21,10 @@ class HistoryItem extends StatelessWidget {
     required this.status,
     required this.cliente,
     required this.produto,
+    this.lote = '',
     required this.total,
+    this.pesoTotalG,
+    this.pesagemStatus = '',
     required this.inicio,
     required this.fim,
     this.onTap,
@@ -29,11 +35,20 @@ class HistoryItem extends StatelessWidget {
       ? ''
       : DateFormat('dd/MM/yyyy - HH:mm', 'pt_BR').format(dt.toLocal());
 
+  String _fmtPeso() {
+    if (pesoTotalG == null) return '';
+    final n = pesoTotalG is num
+        ? (pesoTotalG as num).toDouble()
+        : double.tryParse('$pesoTotalG') ?? 0;
+    if (n <= 0) return '';
+    if (n >= 1000) return '${(n / 1000).toStringAsFixed(2)} kg';
+    return '${n.toStringAsFixed(0)} g';
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
-    // cores do chip de status
     Color bg, fg;
     switch (status.toLowerCase()) {
       case 'ativa':
@@ -41,16 +56,17 @@ class HistoryItem extends StatelessWidget {
         fg = cs.onSecondaryContainer;
         break;
       case 'finalizada':
-        bg = cs.tertiaryContainer;
-        fg = cs.onTertiaryContainer;
+        bg = cs.primaryContainer;
+        fg = cs.onPrimaryContainer;
         break;
       default:
-        bg = cs.surfaceVariant;
+        bg = cs.surfaceContainerHighest;
         fg = cs.onSurfaceVariant;
     }
 
     final dtInicio = _parse(inicio);
     final dtFim = _parse(fim);
+    final peso = _fmtPeso();
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8.0),
@@ -58,24 +74,33 @@ class HistoryItem extends StatelessWidget {
         onTap: onTap,
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
-
         title: Text(
-          'Sessão #$id • $cliente • $produto',
+          'Sessão #$id · $cliente',
           style: const TextStyle(fontWeight: FontWeight.bold),
           overflow: TextOverflow.ellipsis,
         ),
-
-        // duas linhas “oficiais” (evita quebra/overflow)
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
+            Text(
+              [
+                produto,
+                if (lote.isNotEmpty) 'Lote $lote',
+              ].join(' · '),
+              overflow: TextOverflow.ellipsis,
+            ),
             Text('Início: ${_fmt(dtInicio)}'),
             if (dtFim != null) Text('Fim: ${_fmt(dtFim)}'),
+            if (peso.isNotEmpty)
+              Text(
+                'Peso: $peso'
+                '${pesagemStatus.isNotEmpty ? ' · $pesagemStatus' : ''}',
+                style: TextStyle(
+                    color: cs.primary, fontWeight: FontWeight.w600),
+              ),
           ],
         ),
-
-        // >>> Chip em cima, contagem embaixo (sem overflow)
         trailing: ConstrainedBox(
           constraints: const BoxConstraints(minWidth: 84),
           child: FittedBox(
@@ -93,7 +118,8 @@ class HistoryItem extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   child: Text(status,
-                      style: TextStyle(color: fg, fontWeight: FontWeight.w600)),
+                      style:
+                          TextStyle(color: fg, fontWeight: FontWeight.w600)),
                 ),
                 const SizedBox(height: 8),
                 Text(

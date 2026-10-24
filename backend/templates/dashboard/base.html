@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}CRIA Bebidas — Central de Produção{% endblock %}</title>
+
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fonts/fonts.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/adminlte/css/adminlte.min.css') }}">
+  <script src="{{ url_for('static', filename='vendor/chartjs/chart.umd.min.js') }}"></script>
+
+  <style>
+    :root {
+      --ink: #0c1a24;
+      --steel: #16324a;
+      --accent: #c45c26;
+      --accent-soft: #f3e0d4;
+      --line: #c9d6e2;
+      --surface: #edf2f6;
+      --panel: #ffffff;
+      --ok: #1f7a4c;
+      --muted: #5b6b7a;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: 'IBM Plex Sans', system-ui, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 500px at 10% -10%, rgba(196,92,38,.12), transparent 55%),
+        radial-gradient(900px 420px at 100% 0%, rgba(22,50,74,.10), transparent 50%),
+        linear-gradient(180deg, #e6eef4 0%, var(--surface) 45%, #e8eef3 100%);
+      min-height: 100vh;
+    }
+
+    .wrapper, .content-wrapper { background: transparent !important; }
+
+    .main-header {
+      background: rgba(255,255,255,.88) !important;
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--line) !important;
+      box-shadow: none !important;
+    }
+
+    .main-sidebar {
+      background: linear-gradient(180deg, var(--ink) 0%, var(--steel) 100%) !important;
+      box-shadow: 8px 0 28px rgba(12,26,36,.18);
+    }
+
+    .brand-link {
+      background: transparent !important;
+      border-bottom: 1px solid rgba(255,255,255,.08) !important;
+      display: flex !important;
+      align-items: center;
+      gap: 10px;
+      padding: 1.1rem 1rem !important;
+    }
+
+    .brand-mark {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: linear-gradient(145deg, var(--accent), #a8481c);
+      color: #fff; font-family: 'Space Grotesk', sans-serif;
+      font-weight: 700; font-size: 13px; letter-spacing: .04em;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+
+    .brand-text {
+      font-family: 'Space Grotesk', sans-serif !important;
+      font-weight: 700 !important;
+      font-size: 1.05rem !important;
+      letter-spacing: .02em;
+      color: #fff !important;
+    }
+
+    .brand-sub {
+      display: block;
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 11px;
+      font-weight: 500;
+      color: rgba(255,255,255,.55);
+      margin-top: 1px;
+    }
+
+    .nav-sidebar .nav-link {
+      border-radius: 10px !important;
+      margin: 2px 8px;
+      color: rgba(255,255,255,.78) !important;
+    }
+    .nav-sidebar .nav-link:hover { background: rgba(255,255,255,.06) !important; }
+    .nav-sidebar .nav-link.active {
+      background: rgba(196,92,38,.28) !important;
+      color: #fff !important;
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
+
+    .content-header { padding-bottom: 0 !important; }
+
+    .page-shell { padding: 1.25rem 0 2rem; }
+
+    .mono { font-family: 'IBM Plex Mono', monospace; }
+    .display { font-family: 'Space Grotesk', sans-serif; }
+
+    .live-pill {
+      display: inline-flex; align-items: center; gap: 7px;
+      background: #e7f6ee; color: var(--ok);
+      font-size: 11px; font-weight: 700; letter-spacing: .06em;
+      padding: 6px 11px; border-radius: 999px;
+      border: 1px solid #b7e0c8;
+    }
+    .live-pill i { font-size: 7px; animation: pulse 1.4s infinite; }
+    @keyframes pulse {
+      0%,100% { opacity: 1; } 50% { opacity: .35; }
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 10px 30px rgba(12,26,36,.05);
+      overflow: hidden;
+    }
+    .panel-hd {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, #fff, #f8fbfd);
+    }
+    .panel-hd h3 {
+      margin: 0; font-family: 'Space Grotesk', sans-serif;
+      font-size: 15px; font-weight: 650; color: var(--ink);
+    }
+    .panel-bd { padding: 16px 18px; }
+
+    .kpi {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px 16px 14px;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+      transition: transform .15s ease, box-shadow .15s ease;
+    }
+    .kpi:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 28px rgba(12,26,36,.08);
+    }
+    .kpi::before {
+      content: '';
+      position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+      background: var(--accent);
+    }
+    .kpi-label {
+      font-size: 11px; font-weight: 600; letter-spacing: .08em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: 8px;
+    }
+    .kpi-value {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 1.75rem; font-weight: 700; color: var(--ink);
+      line-height: 1.1;
+    }
+    .kpi-foot { margin-top: 6px; font-size: 12px; color: var(--muted); }
+
+    .btn-accent {
+      background: var(--accent); border-color: var(--accent); color: #fff;
+      font-weight: 600; border-radius: 10px;
+    }
+    .btn-accent:hover { background: #a8481c; border-color: #a8481c; color: #fff; }
+
+    .table thead th {
+      border-top: 0; font-size: 11px; text-transform: uppercase;
+      letter-spacing: .05em; color: var(--muted); background: #f5f8fb;
+      font-weight: 600;
+    }
+    .table td { vertical-align: middle; }
+
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+      margin-right: 6px;
+    }
+    .status-dot.on { background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.2); }
+    .status-dot.off { background: #94a3b8; }
+
+    .session-card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px;
+      background: #fbfcfe;
+      height: 100%;
+    }
+    .session-card.active {
+      border-color: #9fd6b5;
+      background: linear-gradient(160deg, #f3fbf6, #fff);
+    }
+    .session-card .qty {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 1.6rem; font-weight: 700; color: var(--ink);
+    }
+
+    .main-footer {
+      background: transparent !important;
+      border-top: 1px solid var(--line) !important;
+      color: var(--muted);
+    }
+
+    @media (max-width: 767px) {
+      .kpi-value { font-size: 1.4rem; }
+    }
+  </style>
+  {% block extra_css %}{% endblock %}
+</head>
+<body class="hold-transition sidebar-mini layout-fixed">
+<div class="wrapper">
+
+  <nav class="main-header navbar navbar-expand navbar-white navbar-light">
+    <ul class="navbar-nav">
+      <li class="nav-item">
+        <a class="nav-link" data-widget="pushmenu" href="#" role="button"><i class="fas fa-bars"></i></a>
+      </li>
+    </ul>
+    <ul class="navbar-nav ml-auto align-items-center">
+      <li class="nav-item mr-2"><span class="live-pill"><i class="fas fa-circle"></i> LINHA AO VIVO</span></li>
+      <li class="nav-item">
+        <span class="nav-link mono" style="font-weight:600;color:var(--ink)">
+          <span id="current-time"></span>
+        </span>
+      </li>
+    </ul>
+  </nav>
+
+  <aside class="main-sidebar sidebar-dark-primary elevation-4">
+    <a href="/dashboard/" class="brand-link">
+      
+      <span>
+        <span class="brand-text">Laticinio Bom Paladar</span>
+        <span class="brand-sub">Contagem · Pesagem</span>
+      </span>
+    </a>
+    <div class="sidebar">
+      <nav class="mt-3">
+        <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu">
+          <li class="nav-item">
+            <a href="/dashboard/" class="nav-link {% if request.endpoint == 'dashboard.index' %}active{% endif %}">
+              <i class="nav-icon fas fa-industry"></i>
+              <p>Central</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/dashboard/filtros" class="nav-link {% if request.endpoint == 'dashboard.filtros' %}active{% endif %}">
+              <i class="nav-icon fas fa-filter"></i>
+              <p>Produção &amp; filtros</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/dashboard/cadastros" class="nav-link {% if request.endpoint == 'dashboard.cadastros' %}active{% endif %}">
+              <i class="nav-icon fas fa-database"></i>
+              <p>Cadastros</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/dashboard/motor" class="nav-link {% if request.endpoint == 'dashboard.motor' %}active{% endif %}">
+              <i class="nav-icon fas fa-cogs"></i>
+              <p>Motor da esteira</p>
+            </a>
+          </li>
+        </ul>
+      </nav>
+    </div>
+  </aside>
+
+  <div class="content-wrapper">
+    {% block page_header %}
+    <div class="content-header" style="display:block;padding:1rem 0 0">
+      <div class="container-fluid">
+        <h1 class="display m-0" style="font-size:1.6rem;font-weight:700;color:var(--ink)">
+          {% block page_title %}{% endblock %}
+        </h1>
+        {% block page_subtitle %}{% endblock %}
+      </div>
+    </div>
+    {% endblock %}
+    <section class="content">
+      <div class="container-fluid page-shell">
+        {% block content %}{% endblock %}
+      </div>
+    </section>
+  </div>
+
+  <footer class="main-footer">
+    <strong class="display">CRIA Bebidas</strong> — central de produção industrial
+  </footer>
+</div>
+
+<script src="{{ url_for('static', filename='vendor/jquery/jquery-3.6.0.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/adminlte/js/adminlte.min.js') }}"></script>
+<script>
+  function updateTime() {
+    const el = document.getElementById('current-time');
+    if (el) el.textContent = new Date().toLocaleString('pt-BR');
+  }
+  updateTime();
+  setInterval(updateTime, 1000);
+</script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>
