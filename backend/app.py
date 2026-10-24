@@ -17,7 +17,7 @@ load_dotenv()
 SITE = os.getenv("SITE", "default")
 LINE_ID = os.getenv("LINE_ID", "1")
 FLASK_HOST = os.getenv("FLASK_HOST", "0.0.0.0")
-FLASK_PORT = int(os.getenv("FLASK_PORT", "5010"))
+FLASK_PORT = int(os.getenv("FLASK_PORT", "5000"))
 FLASK_DEBUG = os.getenv("FLASK_DEBUG", "false").lower() == "true"
 
 MQTT_HOST = os.getenv("MQTT_HOST", "127.0.0.1")
@@ -104,14 +104,14 @@ def _mqtt_connect_bg():
             )
         time.sleep(3)
 
-# Padrões de fábrica do motor (espelham o firmware em arduinoV4/sensor_e_motor.ino)
+# Padrões de fábrica do motor (firmware/esp32_autcont — TB6600 1/8, 30 RPM)
 MOTOR_DEFAULTS = {
-    "rpm": 50,
-    "dir": 0,              # 0 = DIR LOW (padrão do firmware), 1 = DIR HIGH
-    "hold": False,         # A4988: ENABLE só em movimento, como o original
-    "min_half_us": 200,    # original era ~3 µs; 400 µs engasgava o motor
-    "torque": 80,          # rampa curta (o original arrancava direto em 50 RPM)
-    "motor_enabled": False,  # ESP não gira sozinho; painel/sessão ligam
+    "rpm": 30,
+    "dir": 0,              # 0 = DIR LOW, 1 = DIR HIGH
+    "hold": False,         # TB6600: ENA desconectado; campo mantido por compatibilidade MQTT
+    "min_half_us": 200,
+    "torque": 80,
+    "motor_enabled": False,
 }
 MOTOR_RPM_MIN, MOTOR_RPM_MAX = 5, 200
 MOTOR_PULSE_MIN, MOTOR_PULSE_MAX = 50, 2000
@@ -470,6 +470,78 @@ def ensure_schema():
             log.info("Schema: coluna configuracao_motor.torque")
     except Exception as e:
         log.warning("Schema skip torque: %s", e)
+
+    # Colunas extras em pesagens (ciclo real ESP32 + HX711)
+    pesagem_cols = [
+        ("pesagens", "cycle_id",
+         "ALTER TABLE pesagens ADD COLUMN cycle_id VARCHAR(64) NULL"),
+        ("pesagens", "produto_seq",
+         "ALTER TABLE pesagens ADD COLUMN produto_seq INT NULL"),
+        ("pesagens", "peso_estavel",
+         "ALTER TABLE pesagens ADD COLUMN peso_estavel TINYINT(1) NULL DEFAULT 1"),
+        ("pesagens", "temp_amb",
+         "ALTER TABLE pesagens ADD COLUMN temp_amb DECIMAL(8,2) NULL"),
+        ("pesagens", "temp_obj",
+         "ALTER TABLE pesagens ADD COLUMN temp_obj DECIMAL(8,2) NULL"),
+        ("pesagens", "buzzer_acionado",
+         "ALTER TABLE pesagens ADD COLUMN buzzer_acionado TINYINT(1) NULL DEFAULT 0"),
+        ("pesagens", "status",
+         "ALTER TABLE pesagens ADD COLUMN status VARCHAR(32) NULL DEFAULT 'pesado'"),
+        ("pesagens", "dispositivo_id",
+         "ALTER TABLE pesagens ADD COLUMN dispositivo_id INT NULL"),
+    ]
+    for table, col, sql in pesagem_cols:
+        try:
+            if _table_exists(table) and not _column_exists(table, col):
+                exec_(sql)
+                log.info("Schema: adicionada coluna %s.%s", table, col)
+        except Exception as e:
+            log.warning("Schema skip %s.%s: %s", table, col, e)
+
+    try:
+        if _table_exists("pesagens"):
+            idx = one(
+                """
+                SELECT COUNT(*) AS n FROM information_schema.STATISTICS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'pesagens'
+                  AND INDEX_NAME = 'uq_pesagens_sessao_cycle'
+                """
+            )
+            if not (idx and idx.get("n")):
+                exec_("CREATE UNIQUE INDEX uq_pesagens_sessao_cycle ON pesagens (sessao_id, cycle_id)")
+                log.info("Schema: índice uq_pesagens_sessao_cycle")
+    except Exception as e:
+        log.warning("Schema índice cycle_id: %s", e)
+
+    if not _table_exists("dispositivo_status"):
+        try:
+            exec_(
+                """
+                CREATE TABLE dispositivo_status (
+                  dispositivo_codigo VARCHAR(64) NOT NULL PRIMARY KEY,
+                  payload_json JSON NULL,
+                  cycle_state VARCHAR(48) NULL,
+                  peso_atual_g DECIMAL(12,3) NULL,
+                  ultimo_peso_g DECIMAL(12,3) NULL,
+                  peso_acumulado_g DECIMAL(12,3) NULL,
+                  detectados INT NULL DEFAULT 0,
+                  pesados INT NULL DEFAULT 0,
+                  hx711_ok TINYINT(1) NULL,
+                  mlx_ok TINYINT(1) NULL,
+                  buzzer_enabled TINYINT(1) NULL,
+                  motor_running TINYINT(1) NULL,
+                  rpm INT NULL,
+                  temp_amb DECIMAL(8,2) NULL,
+                  temp_obj DECIMAL(8,2) NULL,
+                  falha VARCHAR(128) NULL,
+                  atualizado_em DATETIME NOT NULL
+                )
+                """
+            )
+            log.info("Schema: tabela dispositivo_status criada")
+        except Exception as e:
+            log.warning("Schema skip dispositivo_status: %s", e)
 
 
 def _sessao_select_sql():
@@ -906,13 +978,48 @@ def finalizar_sessao(sessao_id: int):
     if not dispositivo_codigo:
         return jsonify({"error": "dispositivo_codigo obrigatório"}), 400
 
-    simular = data.get("simular_pesagem", True)
+    # Simulação só se não houver pesagens reais do ESP32 e o cliente pedir
+    simular = data.get("simular_pesagem", False)
     peso_ref = data.get("peso_unitario_ref_g")
 
     exec_("UPDATE sessoes_producao SET fim=:fim, status='finalizada' WHERE id=:id",
           fim=now_utc_naive(), id=sessao_id)
 
     mqtt_ok = publish_esteira_sessao(dispositivo_codigo, "stop", sessao_id)
+
+    reais = 0
+    try:
+        row = one(
+            "SELECT COUNT(*) AS n FROM pesagens WHERE sessao_id=:id AND COALESCE(simulado,0)=0",
+            id=sessao_id,
+        )
+        reais = int((row or {}).get("n") or 0)
+    except Exception:
+        reais = 0
+
+    if reais > 0:
+        try:
+            agg = one(
+                """
+                SELECT COALESCE(SUM(peso_g),0) AS total, COALESCE(AVG(peso_g),0) AS medio, COUNT(*) AS n
+                FROM pesagens WHERE sessao_id=:id AND COALESCE(simulado,0)=0
+                """,
+                id=sessao_id,
+            )
+            exec_(
+                """
+                UPDATE sessoes_producao
+                SET peso_total_g=:t, peso_medio_g=:m, pesagem_status='concluida', pesagem_em=:ts
+                WHERE id=:id
+                """,
+                t=float(agg["total"]),
+                m=float(agg["medio"]),
+                ts=now_utc_naive(),
+                id=sessao_id,
+            )
+        except Exception as e:
+            log.warning("Agregação de pesagens reais: %s", e)
+        return jsonify({"ok": True, "pesagem": {"fonte": "real", "itens": reais}, "mqtt_ok": mqtt_ok})
 
     pesagem = None
     if simular and _column_exists("sessoes_producao", "pesagem_status"):
@@ -961,14 +1068,26 @@ def listar_pesagens(sessao_id: int):
     try:
         rows = all_(
             """
-            SELECT item_seq, peso_g, simulado, criado_em
+            SELECT item_seq, peso_g, simulado, criado_em,
+                   cycle_id, produto_seq, peso_estavel, temp_amb, temp_obj,
+                   buzzer_acionado, status
             FROM pesagens WHERE sessao_id=:id
             ORDER BY item_seq ASC
             """,
             id=sessao_id,
         )
     except Exception:
-        rows = []
+        try:
+            rows = all_(
+                """
+                SELECT item_seq, peso_g, simulado, criado_em
+                FROM pesagens WHERE sessao_id=:id
+                ORDER BY item_seq ASC
+                """,
+                id=sessao_id,
+            )
+        except Exception:
+            rows = []
     return jsonify({"sessao_id": sessao_id, "pesagens": rows})
 
 
@@ -1207,20 +1326,275 @@ def registrar_leitura():
         if inc <= 0:
             return jsonify({"error": "inc inválido"}), 400
 
-        exec_(
+        t_amb = data.get("temp_amb")
+        t_obj = data.get("temp_obj")
+        try:
+            t_amb = float(t_amb) if t_amb is not None else None
+            t_obj = float(t_obj) if t_obj is not None else None
+        except (TypeError, ValueError):
+            t_amb, t_obj = None, None
+
+        try:
+            exec_(
+                """
+                INSERT INTO leituras
+                    (sessao_id, timestamp, contagem_incremental, temp_amb, temp_obj, dispositivo_id, dispositivo)
+                VALUES
+                    (:sessao_id, :ts, :inc, :t_amb, :t_obj, :disp_id, :disp)
+                """,
+                sessao_id=sessao_id,
+                ts=now_utc_naive(),
+                inc=inc,
+                t_amb=t_amb,
+                t_obj=t_obj,
+                disp_id=disp["id"],
+                disp=device_code,
+            )
+        except OperationalError:
+            exec_(
+                """
+                INSERT INTO leituras
+                    (sessao_id, timestamp, contagem_incremental, dispositivo_id, dispositivo)
+                VALUES
+                    (:sessao_id, :ts, :inc, :disp_id, :disp)
+                """,
+                sessao_id=sessao_id,
+                ts=now_utc_naive(),
+                inc=inc,
+                disp_id=disp["id"],
+                disp=device_code,
+            )
+        return jsonify({"ok": True, "sessao_id": sessao_id, "inc": inc}), 201
+
+
+# ====================================================
+# ⚖️ PESAGENS REAIS (ESP32 + HX711)
+# ====================================================
+def _recalcular_totais_pesagem(sessao_id: int):
+    if not _column_exists("sessoes_producao", "peso_total_g"):
+        return
+    agg = one(
+        """
+        SELECT COALESCE(SUM(peso_g),0) AS total,
+               COALESCE(AVG(peso_g),0) AS medio,
+               COUNT(*) AS n
+        FROM pesagens
+        WHERE sessao_id=:id AND COALESCE(simulado,0)=0
+        """,
+        id=sessao_id,
+    )
+    if not agg:
+        return
+    exec_(
+        """
+        UPDATE sessoes_producao
+        SET peso_total_g=:t, peso_medio_g=:m,
+            pesagem_status=IF(:n>0,'em_andamento',COALESCE(pesagem_status,'pendente')),
+            pesagem_em=:ts
+        WHERE id=:id
+        """,
+        t=float(agg["total"]),
+        m=float(agg["medio"]),
+        n=int(agg["n"]),
+        ts=now_utc_naive(),
+        id=sessao_id,
+    )
+
+
+@app.post("/pesagens")
+def registrar_pesagem():
+    """
+    Registra pesagem real do ESP32 (idempotente por sessao_id + cycle_id).
+    {
+      "sessao_id": 15, "device_code": "esteira1",
+      "produto_id": 125, "cycle_id": "15-125",
+      "peso_g": 354.8, "peso_estavel": true,
+      "temp_amb": 27.1, "temp_obj": 28.0,
+      "buzzer_acionado": true, "status": "pesado"
+    }
+    """
+    data = request.get_json(force=True)
+    if not data:
+        return jsonify({"error": "JSON vazio"}), 400
+
+    sessao_id = int(data.get("sessao_id") or 0)
+    device_code = (data.get("device_code") or "").strip()
+    cycle_id = (data.get("cycle_id") or "").strip()
+    try:
+        peso_g = float(data.get("peso_g"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "peso_g inválido"}), 400
+
+    if sessao_id <= 0 or not device_code or not cycle_id:
+        return jsonify({"error": "sessao_id, device_code e cycle_id obrigatórios"}), 400
+    if not data.get("peso_estavel", True):
+        return jsonify({"error": "pesagem instável rejeitada"}), 422
+
+    s = one("SELECT id FROM sessoes_producao WHERE id=:id", id=sessao_id)
+    if not s:
+        return jsonify({"error": "sessao_id inexistente"}), 404
+    disp = one("SELECT id FROM dispositivos WHERE codigo=:c", c=device_code)
+    if not disp:
+        return jsonify({"error": "device_code desconhecido"}), 400
+
+    existing = None
+    try:
+        existing = one(
+            "SELECT id FROM pesagens WHERE sessao_id=:s AND cycle_id=:c",
+            s=sessao_id,
+            c=cycle_id,
+        )
+    except Exception:
+        existing = None
+    if existing:
+        return jsonify({"ok": True, "duplicado": True, "id": existing["id"], "cycle_id": cycle_id}), 200
+
+    seq_row = one(
+        "SELECT COALESCE(MAX(item_seq),0)+1 AS n FROM pesagens WHERE sessao_id=:id",
+        id=sessao_id,
+    )
+    item_seq = int((seq_row or {}).get("n") or 1)
+    produto_seq = data.get("produto_id")
+    try:
+        produto_seq = int(produto_seq) if produto_seq is not None else item_seq
+    except (TypeError, ValueError):
+        produto_seq = item_seq
+
+    def _opt_float(key):
+        v = data.get(key)
+        if v is None:
+            return None
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    params = dict(
+        sessao_id=sessao_id,
+        item_seq=item_seq,
+        peso_g=peso_g,
+        ts=now_utc_naive(),
+        cycle_id=cycle_id,
+        produto_seq=produto_seq,
+        peso_estavel=1 if _as_bool(data.get("peso_estavel"), True) else 0,
+        temp_amb=_opt_float("temp_amb"),
+        temp_obj=_opt_float("temp_obj"),
+        buzzer=1 if _as_bool(data.get("buzzer_acionado"), False) else 0,
+        status=(data.get("status") or "pesado")[:32],
+        disp_id=disp["id"],
+    )
+
+    try:
+        new_id = exec_(
             """
-            INSERT INTO leituras
-                (sessao_id, timestamp, contagem_incremental, dispositivo_id, dispositivo)
+            INSERT INTO pesagens
+              (sessao_id, item_seq, peso_g, simulado, criado_em,
+               cycle_id, produto_seq, peso_estavel, temp_amb, temp_obj,
+               buzzer_acionado, status, dispositivo_id)
             VALUES
-                (:sessao_id, :ts, :inc, :disp_id, :disp)
+              (:sessao_id, :item_seq, :peso_g, 0, :ts,
+               :cycle_id, :produto_seq, :peso_estavel, :temp_amb, :temp_obj,
+               :buzzer, :status, :disp_id)
+            """,
+            **params,
+        )
+    except Exception as e:
+        # fallback se colunas novas ainda não existirem
+        log.warning("INSERT pesagem completo falhou (%s); tentando mínimo", e)
+        new_id = exec_(
+            """
+            INSERT INTO pesagens (sessao_id, item_seq, peso_g, simulado, criado_em)
+            VALUES (:sessao_id, :item_seq, :peso_g, 0, :ts)
             """,
             sessao_id=sessao_id,
-            ts=now_utc_naive(),
-            inc=inc,
-            disp_id=disp["id"],
-            disp=device_code,
+            item_seq=item_seq,
+            peso_g=peso_g,
+            ts=params["ts"],
         )
-        return jsonify({"ok": True, "sessao_id": sessao_id, "inc": inc}), 201
+
+    try:
+        _recalcular_totais_pesagem(sessao_id)
+    except Exception as e:
+        log.warning("recalcular totais: %s", e)
+
+    return jsonify({
+        "ok": True,
+        "id": new_id,
+        "sessao_id": sessao_id,
+        "cycle_id": cycle_id,
+        "item_seq": item_seq,
+        "peso_g": peso_g,
+    }), 201
+
+
+@app.get("/estacao/status")
+def estacao_status():
+    codigo = _motor_dispositivo()
+    row = None
+    try:
+        if _table_exists("dispositivo_status"):
+            row = one(
+                "SELECT * FROM dispositivo_status WHERE dispositivo_codigo=:c",
+                c=codigo,
+            )
+    except Exception as e:
+        log.warning("estacao_status: %s", e)
+    cfg = load_motor_config(codigo)
+    return jsonify({
+        "dispositivo_codigo": codigo,
+        "mqtt_connected": mqtt_connected(),
+        "motor_config": cfg,
+        "status": row,
+    })
+
+
+@app.post("/balanca/tara")
+def balanca_tara():
+    data = request.get_json(silent=True) or {}
+    codigo = _motor_dispositivo(data)
+    ok = publish_cmd(codigo, {"action": "tara"}, retain=False, topic_suffix="cmd")
+    return jsonify({"ok": ok, "dispositivo_codigo": codigo, "action": "tara"})
+
+
+@app.post("/balanca/calibrar")
+def balanca_calibrar():
+    data = request.get_json(silent=True) or {}
+    codigo = _motor_dispositivo(data)
+    try:
+        known = float(data.get("peso_conhecido_g") or data.get("known_g") or 0)
+    except (TypeError, ValueError):
+        known = 0
+    if known <= 0:
+        return jsonify({"error": "peso_conhecido_g obrigatório (>0)"}), 400
+    ok = publish_cmd(
+        codigo,
+        {"action": "calibrar", "peso_conhecido_g": known},
+        retain=False,
+        topic_suffix="cmd",
+    )
+    return jsonify({"ok": ok, "dispositivo_codigo": codigo, "peso_conhecido_g": known})
+
+
+@app.post("/buzzer/config")
+def buzzer_config():
+    data = request.get_json(silent=True) or {}
+    codigo = _motor_dispositivo(data)
+    enabled = _as_bool(data.get("enabled"), True)
+    ok = publish_cmd(
+        codigo,
+        {"action": "buzzer_config", "enabled": enabled},
+        retain=False,
+        topic_suffix="cmd",
+    )
+    return jsonify({"ok": ok, "dispositivo_codigo": codigo, "enabled": enabled})
+
+
+@app.post("/estacao/ack_falha")
+def estacao_ack_falha():
+    data = request.get_json(silent=True) or {}
+    codigo = _motor_dispositivo(data)
+    ok = publish_cmd(codigo, {"action": "ack_falha"}, retain=False, topic_suffix="cmd")
+    return jsonify({"ok": ok, "dispositivo_codigo": codigo})
 
 
 # ====================================================

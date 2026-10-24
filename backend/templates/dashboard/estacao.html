@@ -1,0 +1,275 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Estação AUTCONT — CRIA{% endblock %}
+{% block page_title %}Estação AUTCONT{% endblock %}
+{% block page_subtitle %}
+<p class="text-muted mb-0" style="margin-top:4px">ESP32-D único · esteira TB6600 · HX711 · buzzer · ciclo de pesagem</p>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-3 col-6 mb-2">
+    <div class="kpi">
+      <div class="kpi-label">Ciclo</div>
+      <div class="kpi-value" style="font-size:1.1rem" id="st-cycle">—</div>
+      <div class="kpi-foot" id="st-falha"></div>
+    </div>
+  </div>
+  <div class="col-md-3 col-6 mb-2">
+    <div class="kpi">
+      <div class="kpi-label">Peso atual</div>
+      <div class="kpi-value" id="st-peso-atual">—</div>
+      <div class="kpi-foot">último: <span id="st-peso-ult">—</span></div>
+    </div>
+  </div>
+  <div class="col-md-3 col-6 mb-2">
+    <div class="kpi">
+      <div class="kpi-label">Detectados / Pesados</div>
+      <div class="kpi-value" id="st-counts">—</div>
+      <div class="kpi-foot">acumulado: <span id="st-acum">—</span></div>
+    </div>
+  </div>
+  <div class="col-md-3 col-6 mb-2">
+    <div class="kpi">
+      <div class="kpi-label">Motor / RPM</div>
+      <div class="kpi-value" id="st-rpm">—</div>
+      <div class="kpi-foot" id="st-motor">—</div>
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-lg-7 mb-3">
+    <div class="panel">
+      <div class="panel-hd">
+        <h3>Diagnóstico</h3>
+        <span class="chip muted" id="mqtt-chip">mqtt…</span>
+      </div>
+      <div class="panel-bd">
+        <div class="row">
+          <div class="col-sm-6 mb-2">
+            <div class="ctrl-label">HX711</div>
+            <div class="mono" id="st-hx711">—</div>
+          </div>
+          <div class="col-sm-6 mb-2">
+            <div class="ctrl-label">MLX90614</div>
+            <div class="mono" id="st-mlx">—</div>
+          </div>
+          <div class="col-sm-6 mb-2">
+            <div class="ctrl-label">Temp. ambiente</div>
+            <div class="mono" id="st-tamb">—</div>
+          </div>
+          <div class="col-sm-6 mb-2">
+            <div class="ctrl-label">Temp. objeto</div>
+            <div class="mono" id="st-tobj">—</div>
+          </div>
+          <div class="col-sm-6 mb-2">
+            <div class="ctrl-label">Buzzer</div>
+            <div class="mono" id="st-buzzer">—</div>
+          </div>
+          <div class="col-sm-6 mb-2">
+            <div class="ctrl-label">Atualizado</div>
+            <div class="mono" id="st-ts">—</div>
+          </div>
+        </div>
+        <pre id="st-raw" class="mt-2 mb-0" style="font-size:11px;max-height:180px;overflow:auto;background:#f5f8fb;padding:10px;border-radius:8px;">—</pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-5 mb-3">
+    <div class="panel">
+      <div class="panel-hd"><h3>Controles da balança</h3></div>
+      <div class="panel-bd">
+        <div class="form-group">
+          <label class="ctrl-label">Dispositivo</label>
+          <input id="disp" class="form-control form-control-sm mono" value="esteira1">
+        </div>
+        <div class="d-flex flex-wrap" style="gap:8px;margin-bottom:12px">
+          <button class="btn btn-sm btn-accent" id="btn-tara">Tara</button>
+          <button class="btn btn-sm btn-outline-secondary" id="btn-ack">Ack falha</button>
+        </div>
+        <div class="form-row align-items-end">
+          <div class="col">
+            <label class="ctrl-label">Massa conhecida (g)</label>
+            <input id="known-g" type="number" step="0.1" class="form-control form-control-sm" value="500">
+          </div>
+          <div class="col-auto">
+            <button class="btn btn-sm btn-outline-primary" id="btn-cal">Calibrar</button>
+          </div>
+        </div>
+        <hr>
+        <div class="custom-control custom-switch mb-2">
+          <input type="checkbox" class="custom-control-input" id="bz-en" checked>
+          <label class="custom-control-label" for="bz-en">Buzzer habilitado</label>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" id="btn-bz">Aplicar buzzer</button>
+        <div class="mt-3 text-muted" style="font-size:12px" id="ctrl-msg">—</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-hd">
+    <h3>Últimas pesagens reais</h3>
+    <button class="btn btn-sm btn-outline-secondary" id="btn-reload-pes">Atualizar</button>
+  </div>
+  <div class="panel-bd p-0">
+    <div class="table-responsive">
+      <table class="table table-sm mb-0">
+        <thead>
+          <tr>
+            <th>Sessão</th>
+            <th>Seq</th>
+            <th>cycle_id</th>
+            <th>Peso (g)</th>
+            <th>Estável</th>
+            <th>Buzzer</th>
+            <th>Quando</th>
+          </tr>
+        </thead>
+        <tbody id="pes-body">
+          <tr><td colspan="7" class="text-muted text-center">Carregando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  .chip { font-size:11px; font-weight:700; padding:4px 10px; border-radius:999px; }
+  .chip.ok { background:#e7f6ee; color:var(--ok); }
+  .chip.muted { background:#eef2f6; color:var(--muted); }
+  .chip.warn { background:#fff4e5; color:#b45309; }
+  .ctrl-label { font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const API = '';
+function fmt(v, dig=1) {
+  if (v == null || v === '') return '—';
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(dig) + (dig===1||dig===2?'':'') : '—';
+}
+function fmtG(v) {
+  if (v == null) return '—';
+  return Number(v).toFixed(1) + ' g';
+}
+function setMsg(t) { document.getElementById('ctrl-msg').textContent = t; }
+
+async function refreshStatus() {
+  try {
+    const r = await fetch(API + '/estacao/status?dispositivo_codigo=' + encodeURIComponent(document.getElementById('disp').value));
+    const data = await r.json();
+    const s = data.status || {};
+    const mqttOk = !!data.mqtt_connected;
+    const chip = document.getElementById('mqtt-chip');
+    chip.className = 'chip ' + (mqttOk ? 'ok' : 'warn');
+    chip.textContent = mqttOk ? 'MQTT ok' : 'MQTT offline';
+
+    document.getElementById('st-cycle').textContent = s.cycle_state || '—';
+    document.getElementById('st-falha').textContent = s.falha || '';
+    document.getElementById('st-peso-atual').textContent = fmtG(s.peso_atual_g);
+    document.getElementById('st-peso-ult').textContent = fmtG(s.ultimo_peso_g);
+    document.getElementById('st-counts').textContent =
+      (s.detectados != null ? s.detectados : '—') + ' / ' + (s.pesados != null ? s.pesados : '—');
+    document.getElementById('st-acum').textContent = fmtG(s.peso_acumulado_g);
+    document.getElementById('st-rpm').textContent = s.rpm != null ? s.rpm : '—';
+    document.getElementById('st-motor').textContent = s.motor_running ? 'girando' : 'parado';
+    document.getElementById('st-hx711').textContent = s.hx711_ok == null ? '—' : (s.hx711_ok ? 'OK' : 'FALHA');
+    document.getElementById('st-mlx').textContent = s.mlx_ok == null ? '—' : (s.mlx_ok ? 'OK' : 'ausente');
+    document.getElementById('st-tamb').textContent = s.temp_amb != null ? Number(s.temp_amb).toFixed(1) + ' °C' : '—';
+    document.getElementById('st-tobj').textContent = s.temp_obj != null ? Number(s.temp_obj).toFixed(1) + ' °C' : '—';
+    document.getElementById('st-buzzer').textContent = s.buzzer_enabled == null ? '—' : (s.buzzer_enabled ? 'ligado' : 'desligado');
+    document.getElementById('st-ts').textContent = s.atualizado_em || '—';
+    document.getElementById('st-raw').textContent = s.payload_json
+      ? (typeof s.payload_json === 'string' ? s.payload_json : JSON.stringify(s.payload_json, null, 2))
+      : JSON.stringify(s, null, 2);
+  } catch (e) {
+    document.getElementById('mqtt-chip').className = 'chip warn';
+    document.getElementById('mqtt-chip').textContent = 'erro API';
+  }
+}
+
+async function loadPesagens() {
+  try {
+    const sess = await fetch(API + '/sessoes?status=ativa&size=1');
+    const sj = await sess.json();
+    const rows = sj.rows || [];
+    let sid = rows.length ? rows[0].id : null;
+    if (!sid) {
+      const all = await fetch(API + '/sessoes?size=1');
+      const aj = await all.json();
+      sid = (aj.rows && aj.rows[0]) ? aj.rows[0].id : null;
+    }
+    const tbody = document.getElementById('pes-body');
+    if (!sid) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">Nenhuma sessão</td></tr>';
+      return;
+    }
+    const r = await fetch(API + '/sessoes/' + sid + '/pesagens');
+    const data = await r.json();
+    const list = data.pesagens || data || [];
+    if (!list.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">Sem pesagens na sessão ' + sid + '</td></tr>';
+      return;
+    }
+    tbody.innerHTML = list.map(p => `
+      <tr>
+        <td class="mono">${sid}</td>
+        <td class="mono">${p.item_seq ?? p.produto_seq ?? '—'}</td>
+        <td class="mono">${p.cycle_id || '—'}</td>
+        <td class="mono">${Number(p.peso_g).toFixed(1)}</td>
+        <td>${p.peso_estavel == null ? '—' : (p.peso_estavel ? 'sim' : 'não')}</td>
+        <td>${p.buzzer_acionado ? 'sim' : '—'}</td>
+        <td class="mono">${p.criado_em || '—'}</td>
+      </tr>`).join('');
+  } catch (e) {
+    document.getElementById('pes-body').innerHTML =
+      '<tr><td colspan="7" class="text-danger text-center">Falha ao carregar</td></tr>';
+  }
+}
+
+async function postJson(url, body) {
+  const r = await fetch(API + url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  return r.json();
+}
+
+document.getElementById('btn-tara').onclick = async () => {
+  const d = await postJson('/balanca/tara', {dispositivo_codigo: document.getElementById('disp').value});
+  setMsg(d.ok ? 'Tara enviada via MQTT' : 'Falha ao publicar tara');
+};
+document.getElementById('btn-cal').onclick = async () => {
+  const d = await postJson('/balanca/calibrar', {
+    dispositivo_codigo: document.getElementById('disp').value,
+    peso_conhecido_g: Number(document.getElementById('known-g').value)
+  });
+  setMsg(d.ok ? 'Calibração enviada' : (d.error || 'Falha calibração'));
+};
+document.getElementById('btn-bz').onclick = async () => {
+  const d = await postJson('/buzzer/config', {
+    dispositivo_codigo: document.getElementById('disp').value,
+    enabled: document.getElementById('bz-en').checked
+  });
+  setMsg(d.ok ? 'Buzzer atualizado' : 'Falha buzzer');
+};
+document.getElementById('btn-ack').onclick = async () => {
+  const d = await postJson('/estacao/ack_falha', {dispositivo_codigo: document.getElementById('disp').value});
+  setMsg(d.ok ? 'Ack falha enviado' : 'Falha ack');
+};
+document.getElementById('btn-reload-pes').onclick = loadPesagens;
+
+refreshStatus();
+loadPesagens();
+setInterval(refreshStatus, 2000);
+setInterval(loadPesagens, 8000);
+</script>
+{% endblock %}

@@ -3,6 +3,11 @@ backend/.venv/
 
 # cache Python
 backend/__pycache__/
+backend/**/__pycache__/
+*.pyc
 
 # arquivos de ambiente
 backend/.env
+
+# credenciais locais do firmware ESP32
+firmware/esp32_autcont/secrets.h

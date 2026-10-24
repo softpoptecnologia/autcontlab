@@ -4,8 +4,9 @@
 #include <ArduinoJson.h>
 
 // ============================================================
-// AUTCONT - ESP32 / Wemos D1 R32 + DRV8825
-// Versão simplificada para teste do motor
+// AUTCONT - ESP32 / Wemos D1 R32 + DRV8825  [HISTÓRICO]
+// Preservado. Firmware atual: firmware/esp32_autcont/
+// (TB6600 1/8 + HX711 + buzzer + máquina de estados)
 // ============================================================
 
 // ------------------------------------------------------------

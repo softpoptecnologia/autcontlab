@@ -33,6 +33,11 @@ def motor():
     """Ajuste em tempo real dos parâmetros do motor da esteira"""
     return render_template('dashboard/motor.html')
 
+@dashboard_bp.route('/estacao')
+def estacao():
+    """Monitoramento da estação ESP32 (esteira + balança + buzzer)"""
+    return render_template('dashboard/estacao.html')
+
 # ==========================================
 # APIs - ESTATÍSTICAS EM TEMPO REAL
 # ==========================================

@@ -24,9 +24,37 @@ CREATE TABLE IF NOT EXISTS pesagens (
   peso_g DECIMAL(12,3) NOT NULL,
   simulado TINYINT(1) NOT NULL DEFAULT 1,
   criado_em DATETIME NOT NULL,
+  cycle_id VARCHAR(64) NULL,
+  produto_seq INT NULL,
+  peso_estavel TINYINT(1) NULL DEFAULT 1,
+  temp_amb DECIMAL(8,2) NULL,
+  temp_obj DECIMAL(8,2) NULL,
+  buzzer_acionado TINYINT(1) NULL DEFAULT 0,
+  status VARCHAR(32) NULL DEFAULT 'pesado',
+  dispositivo_id INT NULL,
   INDEX idx_pesagens_sessao (sessao_id),
   CONSTRAINT fk_pesagens_sessao FOREIGN KEY (sessao_id)
     REFERENCES sessoes_producao(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS dispositivo_status (
+  dispositivo_codigo VARCHAR(64) NOT NULL PRIMARY KEY,
+  payload_json JSON NULL,
+  cycle_state VARCHAR(48) NULL,
+  peso_atual_g DECIMAL(12,3) NULL,
+  ultimo_peso_g DECIMAL(12,3) NULL,
+  peso_acumulado_g DECIMAL(12,3) NULL,
+  detectados INT NULL DEFAULT 0,
+  pesados INT NULL DEFAULT 0,
+  hx711_ok TINYINT(1) NULL,
+  mlx_ok TINYINT(1) NULL,
+  buzzer_enabled TINYINT(1) NULL,
+  motor_running TINYINT(1) NULL,
+  rpm INT NULL,
+  temp_amb DECIMAL(8,2) NULL,
+  temp_obj DECIMAL(8,2) NULL,
+  falha VARCHAR(128) NULL,
+  atualizado_em DATETIME NOT NULL
 );
 
 -- Índice composto (acelera inserts/consultas por sessão/tempo)
